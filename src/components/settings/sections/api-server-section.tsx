@@ -164,6 +164,20 @@ export function ApiServerSection({ draft, setDraft }: Props) {
     )
   }, [draft.apiAllowUnauthenticated, draft.apiToken, health?.tokenSource, mcpEntryPath])
 
+  const sampleMcpHttpCommand = useMemo(() => {
+    if (!mcpEntryPath) return ""
+    const quotedEntry = `"${mcpEntryPath}"`
+    return [
+      `# Local HTTP MCP`,
+      `node ${quotedEntry} --transport http --host 127.0.0.1 --port 8080`,
+      `# MCP:    http://127.0.0.1:8080/mcp`,
+      `# Health: http://127.0.0.1:8080/health`,
+      "",
+      `# LAN HTTP MCP (the health response reports detected lanMcpUrls)`,
+      `node ${quotedEntry} --transport http --host 0.0.0.0 --port 8080`,
+    ].join("\n")
+  }, [mcpEntryPath])
+
   const hasUnsavedApiConfig =
     persistedApiConfig.enabled !== draft.apiEnabled ||
     persistedApiConfig.allowUnauthenticated !== draft.apiAllowUnauthenticated ||
@@ -676,6 +690,25 @@ export function ApiServerSection({ draft, setDraft }: Props) {
                   })
               : sampleMcpConfig}
           </pre>
+
+          {!hasUnsavedApiConfig && mcpEntryPath && (
+            <div className="mt-3 rounded-md border border-border/50 bg-background/50 p-3">
+              <div className="text-xs font-semibold">
+                {t("settings.sections.apiServer.mcpHttpTitle", {
+                  defaultValue: "HTTP MCP (Streamable HTTP)",
+                })}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {t("settings.sections.apiServer.mcpHttpHint", {
+                  defaultValue:
+                    "Use 127.0.0.1 for local clients. Use 0.0.0.0 to listen on the LAN; GET /health reports the detected LAN MCP URLs. Set LLM_WIKI_MCP_AUTH_TOKEN before exposing MCP to a LAN.",
+                })}
+              </p>
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-background/60 px-3 py-2 text-[11px] font-mono leading-relaxed">
+                {sampleMcpHttpCommand}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
     </div>
