@@ -25,7 +25,7 @@ interface HttpSession {
 }
 
 const DEFAULT_HTTP_HOST = "127.0.0.1"
-const DEFAULT_HTTP_PORT = 8080
+const DEFAULT_HTTP_PORT = 19898
 const DEFAULT_HTTP_PATH = "/mcp"
 const MAX_BODY_BYTES = 1024 * 1024
 
