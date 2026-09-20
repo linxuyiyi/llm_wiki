@@ -61,6 +61,8 @@ When API unauthenticated mode is enabled, omit `LLM_WIKI_API_TOKEN`. If MCP acce
 - `llm_wiki_search`: search with the app's shared keyword/vector backend.
 - `llm_wiki_chat`: ask the backend Agent chat endpoint and receive answer text, references, usage, and tool events. `mode: deep` broadens backend evidence collection; full Deep Research workflows still live in the desktop app.
 - `llm_wiki_graph`: query the app's knowledge graph endpoint.
+- `llm_wiki_write_source`: create or update a file under `raw/sources/` using UTF-8 text or Base64 content. The target project must be active and token auth is required.
+- `llm_wiki_delete_source`: delete a file under `raw/sources/`. The target project must be active and token auth is required.
 - `llm_wiki_rescan_sources`: trigger a Source Watch rescan using the user's configured rules.
 
 ## Security model
@@ -70,6 +72,7 @@ The MCP server inherits the desktop API's security model:
 - It only talks to `127.0.0.1` by default.
 - It uses the same API token or unauthenticated setting as Settings → API + MCP.
 - File reads go through the API path allow-list. Internal app state files are not exposed.
+- Source write/delete tools are restricted to `raw/sources/`, reject traversal/reserved Windows paths, and always require the API token.
 - Review data is exposed only through the dedicated Review endpoint/tool, which defaults to unresolved items rather than opening internal state files directly.
 - Search and graph tools operate on projects known to the app; use `project_id: "current"` for the active project.
 - For multi-project use, call `llm_wiki_set_project` once. The resolved project ID remains fixed for the lifetime of the MCP subprocess even if the desktop UI switches projects, and every project-tool response includes an `activeProject` marker.
