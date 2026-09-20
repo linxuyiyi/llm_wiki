@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/astra-source-api
+      - feature/http-mcp
   workflow_dispatch:
 
 permissions:
@@ -54,6 +55,45 @@ jobs:
             throw "No MCP test files were generated"
           }
           node --test $tests
+
+      - name: HTTP MCP smoke test
+        shell: powershell
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP "llm-wiki-mcp-http.out.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "llm-wiki-mcp-http.err.log"
+          $proc = Start-Process node -ArgumentList @(
+            "mcp-server/dist/src/index.js",
+            "--transport", "http",
+            "--host", "0.0.0.0",
+            "--port", "18080"
+          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $health = $null
+            for ($i = 0; $i -lt 40; $i++) {
+              try {
+                $health = Invoke-RestMethod -Uri "http://127.0.0.1:18080/health" -TimeoutSec 2
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if (-not $health) {
+              Get-Content $stderr -ErrorAction SilentlyContinue
+              throw "HTTP MCP health endpoint did not start"
+            }
+            if ($health.status -ne "ok") { throw "Unexpected HTTP MCP health status: $($health.status)" }
+            if ($health.transport -ne "streamable-http") { throw "Unexpected transport: $($health.transport)" }
+            if ($health.listenHost -ne "0.0.0.0") { throw "0.0.0.0 binding was not applied" }
+            if ($health.localMcpUrl -ne "http://127.0.0.1:18080/mcp") { throw "Unexpected local MCP URL: $($health.localMcpUrl)" }
+            Write-Host "HTTP MCP health check passed"
+            $health | ConvertTo-Json -Depth 5
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+            Get-Content $stderr -ErrorAction SilentlyContinue
+          }
 
       - name: Rust Astra API tests
         shell: powershell
