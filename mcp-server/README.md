@@ -61,6 +61,8 @@ When API unauthenticated mode is enabled, omit `LLM_WIKI_API_TOKEN`. If MCP acce
 - `llm_wiki_search`: search with the app's shared keyword/vector backend.
 - `llm_wiki_chat`: ask the backend Agent chat endpoint and receive answer text, references, usage, and tool events. `mode: deep` broadens backend evidence collection; full Deep Research workflows still live in the desktop app.
 - `llm_wiki_graph`: query the app's knowledge graph endpoint.
+- `llm_wiki_write_source`: create or update a file under `raw/sources/` using UTF-8 text or Base64 content. The target project must be active and token auth is required.
+- `llm_wiki_delete_source`: delete a file under `raw/sources/`. The target project must be active and token auth is required.
 - `llm_wiki_rescan_sources`: trigger a Source Watch rescan using the user's configured rules.
 
 ## Security model
@@ -70,8 +72,43 @@ The MCP server inherits the desktop API's security model:
 - It only talks to `127.0.0.1` by default.
 - It uses the same API token or unauthenticated setting as Settings → API + MCP.
 - File reads go through the API path allow-list. Internal app state files are not exposed.
+- Source write/delete tools are restricted to `raw/sources/`, reject traversal/reserved Windows paths, and always require the API token.
 - Review data is exposed only through the dedicated Review endpoint/tool, which defaults to unresolved items rather than opening internal state files directly.
 - Search and graph tools operate on projects known to the app; use `project_id: "current"` for the active project.
 - For multi-project use, call `llm_wiki_set_project` once. The resolved project ID remains fixed for the lifetime of the MCP subprocess even if the desktop UI switches projects, and every project-tool response includes an `activeProject` marker.
 
 Do not pass API tokens via command-line arguments. Prefer environment variables so they do not appear in shell history.
+
+
+## Streamable HTTP transport
+
+The stdio transport remains the default. To expose the same MCP tools over HTTP:
+
+```bash
+node dist/src/index.js --transport http --host 127.0.0.1 --port 8080
+```
+
+Endpoints:
+
+- MCP: `http://127.0.0.1:8080/mcp`
+- Health: `http://127.0.0.1:8080/health`
+
+For LAN access, listen on all IPv4 interfaces:
+
+```bash
+node dist/src/index.js --transport http --host 0.0.0.0 --port 8080
+```
+
+When `0.0.0.0` is used, the server detects non-loopback IPv4 addresses and returns them from `GET /health` as `lanMcpUrls`. The bundled Windows launcher `start_llm_wiki_mcp_http.bat` uses the same HTTP transport.
+
+Configuration can also be supplied with environment variables:
+
+```text
+LLM_WIKI_MCP_TRANSPORT=http
+LLM_WIKI_MCP_HOST=0.0.0.0
+LLM_WIKI_MCP_PORT=8080
+LLM_WIKI_MCP_PATH=/mcp
+LLM_WIKI_MCP_AUTH_TOKEN=<optional transport token>
+```
+
+If `LLM_WIKI_MCP_AUTH_TOKEN` is set, clients must send either `Authorization: Bearer <token>` or `X-API-Key: <token>`. The existing `LLM_WIKI_API_TOKEN` is still used by the MCP process when it calls the LLM Wiki desktop API.

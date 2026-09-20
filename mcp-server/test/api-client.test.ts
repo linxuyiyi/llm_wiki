@@ -279,3 +279,56 @@ test("API errors include status and server message", async () => {
   const client = new LlmWikiApiClient({ fetchImpl })
   await assert.rejects(() => client.projects(), /LLM Wiki API 401: Unauthorized/)
 })
+
+
+test("writeSource sends PUT with source content", async () => {
+  let url = ""
+  let method = ""
+  let body = ""
+  const fetchImpl: typeof fetch = async (input, init) => {
+    url = String(input)
+    method = String(init?.method ?? "")
+    body = String(init?.body ?? "")
+    return new Response(JSON.stringify({
+      ok: true,
+      projectId: "p1",
+      path: "raw/sources/automation/aw-rules.md",
+      action: "created",
+      size: 12,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })
+  }
+
+  const client = new LlmWikiApiClient({ baseUrl: "http://localhost:19828", token: "secret", fetchImpl })
+  const result = await client.writeSource("automation/aw-rules.md", "current", { content: "# AW rules" })
+
+  assert.equal(url, "http://localhost:19828/api/v1/projects/current/sources/file")
+  assert.equal(method, "PUT")
+  assert.deepEqual(JSON.parse(body), {
+    path: "automation/aw-rules.md",
+    content: "# AW rules",
+  })
+  assert.equal(result.action, "created")
+})
+
+test("deleteSource sends DELETE with encoded source path", async () => {
+  let url = ""
+  let method = ""
+  const fetchImpl: typeof fetch = async (input, init) => {
+    url = String(input)
+    method = String(init?.method ?? "")
+    return new Response(JSON.stringify({
+      ok: true,
+      projectId: "p1",
+      path: "raw/sources/自动化工程/AW调用规范.md",
+      action: "deleted",
+    }), { status: 200, headers: { "Content-Type": "application/json" } })
+  }
+
+  const client = new LlmWikiApiClient({ baseUrl: "http://localhost:19828", token: "secret", fetchImpl })
+  const result = await client.deleteSource("自动化工程/AW调用规范.md", "current")
+
+  assert.equal(method, "DELETE")
+  assert.match(url, /\/api\/v1\/projects\/current\/sources\/file\?path=/)
+  assert.ok(url.includes("%E8%87%AA%E5%8A%A8%E5%8C%96%E5%B7%A5%E7%A8%8B"))
+  assert.equal(result.action, "deleted")
+})

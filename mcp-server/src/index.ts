@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { parseMcpLaunchOptions, startHttpMcpServer } from "./http-server.js"
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -24,9 +25,10 @@ const DEFAULT_PROJECT_ID = "current"
 const MAX_TEXT_BYTES = 120_000
 
 const client = new LlmWikiApiClient()
-const projectBinding = new McpProjectBinding()
 
-const server = new Server(
+export function createMcpServer(): Server {
+  const projectBinding = new McpProjectBinding()
+  const server = new Server(
   { name: "llm-wiki", version: VERSION },
   { capabilities: { tools: {} } },
 )
@@ -159,6 +161,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "llm_wiki_write_source",
+      description: "Create or update a source file under raw/sources/. The target project must be the active LLM Wiki project and the HTTP API token must be configured.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "Project UUID, project path, or 'current'. Defaults to current." },
+          path: { type: "string", description: "Path relative to raw/sources/, for example automation/aw-rules.md." },
+          content: { type: "string", description: "UTF-8 text content. Provide exactly one of content or content_base64." },
+          content_base64: { type: "string", description: "Base64-encoded binary content. Provide exactly one of content or content_base64." },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "llm_wiki_delete_source",
+      description: "Delete a source file under raw/sources/. The target project must be the active LLM Wiki project and the HTTP API token must be configured.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "Project UUID, project path, or 'current'. Defaults to current." },
+          path: { type: "string", description: "Path relative to raw/sources/." },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: "llm_wiki_rescan_sources",
       description: "Trigger the desktop app's source folder rescan for a project, using the user's Source Watch rules.",
       inputSchema: {
@@ -209,13 +239,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         try {
           pinned = projectBinding.pin(requested, projects.projects, projects.currentProject)
         } catch (error) {
-          throw new McpError(ErrorCode.InvalidParams, scopedErrorMessage(error))
+          throw new McpError(ErrorCode.InvalidParams, scopedErrorMessage(error, projectBinding))
         }
         return textResult(JSON.stringify({ activeProject: pinned, pinned: true }, null, 2))
       }
       case "llm_wiki_files": {
         await assertMcpEnabled()
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const response = await client.files(scope.id, {
           root: enumArg(args.root, ["wiki", "sources", "all"] as const, "wiki"),
           recursive: boolArg(args.recursive, true),
@@ -226,13 +256,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "llm_wiki_read_file": {
         await assertMcpEnabled()
         const relPath = stringArg(args.path, "path")
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const { path, content } = await client.fileContent(scope.id, relPath)
         return textResult(withActiveProject(`# ${path}\n\n${truncateText(content, MAX_TEXT_BYTES)}`, scope.project, scope.id))
       }
       case "llm_wiki_reviews": {
         await assertMcpEnabled()
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const reviews = await client.reviews(scope.id, {
           status: enumArg(args.status, ["unresolved", "resolved", "all"] as const, "unresolved"),
           type: optionalStringArg(args.type),
@@ -243,7 +273,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "llm_wiki_search": {
         await assertMcpEnabled()
         const query = stringArg(args.query, "query")
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const search = await client.search(scope.id, query, {
           topK: numberArg(args.top_k),
           includeContent: boolArg(args.include_content, false),
@@ -253,7 +283,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "llm_wiki_chat": {
         await assertMcpEnabled()
         const message = stringArg(args.message, "message")
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const chat = await client.chat(scope.id, message, {
           sessionId: optionalStringArg(args.session_id),
           mode: enumArg(args.mode, ["fast", "standard", "deep", "local_first"] as const, "standard"),
@@ -269,7 +299,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       case "llm_wiki_graph": {
         await assertMcpEnabled()
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const graph = await client.graph(scope.id, {
           q: optionalStringArg(args.q),
           nodeType: optionalStringArg(args.node_type),
@@ -277,15 +307,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         })
         return textResult(withActiveProject(formatGraph(graph.nodes, graph.edges), scope.project, scope.id))
       }
+      case "llm_wiki_write_source": {
+        await assertMcpEnabled()
+        const path = stringArg(args.path, "path")
+        const content = typeof args.content === "string" ? args.content : undefined
+        const contentBase64 = typeof args.content_base64 === "string" ? args.content_base64 : undefined
+        if ((content === undefined) === (contentBase64 === undefined)) {
+          throw new McpError(ErrorCode.InvalidParams, "Provide exactly one of content or content_base64")
+        }
+        const scope = await resolveProjectScope(args, projectBinding)
+        const result = await client.writeSource(path, scope.id, { content, contentBase64 })
+        return textResult(withActiveProject(JSON.stringify(result, null, 2), scope.project, scope.id))
+      }
+      case "llm_wiki_delete_source": {
+        await assertMcpEnabled()
+        const path = stringArg(args.path, "path")
+        const scope = await resolveProjectScope(args, projectBinding)
+        const result = await client.deleteSource(path, scope.id)
+        return textResult(withActiveProject(JSON.stringify(result, null, 2), scope.project, scope.id))
+      }
       case "llm_wiki_rescan_sources": {
         await assertMcpEnabled()
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         return textResult(withActiveProject(JSON.stringify(await client.rescan(scope.id), null, 2), scope.project, scope.id))
       }
       case "llm_wiki_embed_page": {
         await assertMcpEnabled()
         const path = stringArg(args.path, "path")
-        const scope = await resolveProjectScope(args)
+        const scope = await resolveProjectScope(args, projectBinding)
         const result = await client.embedPage(path, scope.id, boolArg(args.force, false))
         return textResult(withActiveProject(JSON.stringify(result, null, 2), scope.project, scope.id))
       }
@@ -294,14 +343,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (err) {
     if (err instanceof McpError) {
-      throw new McpError(err.code, scopedErrorMessage(err.message))
+      throw new McpError(err.code, scopedErrorMessage(err.message, projectBinding))
     }
     throw new McpError(
       ErrorCode.InternalError,
-      scopedErrorMessage(err),
+      scopedErrorMessage(err, projectBinding),
     )
   }
 })
+
+  return server
+}
 
 async function assertMcpEnabled(): Promise<void> {
   const health = await client.health()
@@ -324,12 +376,12 @@ function asObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-async function resolveProjectScope(args: Record<string, unknown>): Promise<{ id: string; project: ApiProject | null }> {
+async function resolveProjectScope(args: Record<string, unknown>, projectBinding: McpProjectBinding): Promise<{ id: string; project: ApiProject | null }> {
   let id: string
   try {
     id = projectBinding.resolve(optionalStringArg(args.project_id) ?? undefined)
   } catch (error) {
-    throw new McpError(ErrorCode.InvalidParams, scopedErrorMessage(error))
+    throw new McpError(ErrorCode.InvalidParams, scopedErrorMessage(error, projectBinding))
   }
   if (projectBinding.project) return { id, project: projectBinding.project }
   const projects = await client.projects()
@@ -339,7 +391,7 @@ async function resolveProjectScope(args: Record<string, unknown>): Promise<{ id:
   return { id, project }
 }
 
-function scopedErrorMessage(error: unknown): string {
+function scopedErrorMessage(error: unknown, projectBinding: McpProjectBinding): string {
   const message = error instanceof Error ? error.message : String(error)
   const project = projectBinding.project
   if (!project || message.includes("[activeProject:")) return message
@@ -525,6 +577,13 @@ function formatGraph(nodes: ApiGraphNode[], edges: Array<{ source: string; targe
 }
 
 async function main(): Promise<void> {
+  const launch = parseMcpLaunchOptions(process.argv.slice(2))
+  if (launch.transport === "http") {
+    await startHttpMcpServer(createMcpServer, launch.http)
+    return
+  }
+
+  const server = createMcpServer()
   const transport = new StdioServerTransport()
   await server.connect(transport)
   console.error(`LLM Wiki MCP server v${VERSION} connected to ${process.env.LLM_WIKI_API_BASE_URL ?? "http://127.0.0.1:19828"}`)

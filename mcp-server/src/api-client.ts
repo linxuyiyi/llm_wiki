@@ -313,6 +313,29 @@ export class LlmWikiApiClient {
     }
   }
 
+  async writeSource(
+    path: string,
+    projectId = "current",
+    options: { content?: string; contentBase64?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/sources/file`, {
+      method: "PUT",
+      body: {
+        path,
+        content: options.content,
+        contentBase64: options.contentBase64,
+      },
+    })
+  }
+
+  async deleteSource(path: string, projectId = "current"): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams({ path })
+    return this.request(
+      `/projects/${encodeURIComponent(projectId)}/sources/file?${params.toString()}`,
+      { method: "DELETE" },
+    )
+  }
+
   async rescan(projectId = "current"): Promise<Record<string, unknown>> {
     return this.request(`/projects/${encodeURIComponent(projectId)}/sources/rescan`, {
       method: "POST",
@@ -335,7 +358,7 @@ export class LlmWikiApiClient {
     }
   }
 
-  private async request(path: string, options: { method?: "GET" | "POST"; body?: unknown; auth?: boolean } = {}): Promise<Record<string, unknown>> {
+  private async request(path: string, options: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown; auth?: boolean } = {}): Promise<Record<string, unknown>> {
     const url = `${this.baseUrl}${apiPath(path)}`
     const headers: Record<string, string> = { Accept: "application/json" }
     if (options.auth !== false && this.token?.trim()) {
