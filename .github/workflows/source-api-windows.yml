@@ -3,8 +3,7 @@ name: Source API Windows Build
 on:
   push:
     branches:
-      - feature/astra-source-api
-      - feature/astra-source-api-ui
+      - refactor/generic-source-api
   workflow_dispatch:
 
 permissions:
