@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 if not defined LLM_WIKI_MCP_HOST set "LLM_WIKI_MCP_HOST=127.0.0.1"
-if not defined LLM_WIKI_MCP_PORT set "LLM_WIKI_MCP_PORT=8080"
+if not defined LLM_WIKI_MCP_PORT set "LLM_WIKI_MCP_PORT=19898"
 if not defined LLM_WIKI_MCP_PATH set "LLM_WIKI_MCP_PATH=/mcp"
 
 set "MCP_ENTRY=%~dp0mcp-server\dist\src\index.js"
