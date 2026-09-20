@@ -498,15 +498,20 @@ export function SettingsView() {
 
       await saveMineruConfig(newMineruConfig)
 
-      // The Rust side reads `apiConfig.{enabled,token,mcpEnabled,allowLanAccess}` from this
-      // same `app-state.json` via a 5s cache, so saved changes propagate within
-      // that window without any IPC round-trip. Bind-address changes still
-      // require an app restart because the server sockets are already open.
+      // Persist the shared API/MCP config first. The managed HTTP MCP process
+      // is then restarted immediately so enabling/disabling MCP, token changes,
+      // and the shared LAN flag take effect without a manual launcher.
+      // The Rust API/Clip listeners still apply bind-address changes on app restart.
       await saveApiConfig(newApiConfig)
       try {
         await invoke<string>("api_server_reload_config")
       } catch (err) {
         console.warn("[api] failed to reload API server config cache:", err)
+      }
+      try {
+        await invoke("mcp_http_server_reload_config")
+      } catch (err) {
+        console.warn("[mcp-http] failed to reload managed HTTP MCP:", err)
       }
 
       await saveGeneralConfig(newGeneralConfig)
