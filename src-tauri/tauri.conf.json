@@ -44,7 +44,9 @@
     ],
     "resources": {
       "../mcp-server/dist/": "mcp-server/dist/",
-      "../scripts/start_llm_wiki_mcp_http.bat": "start_llm_wiki_mcp_http.bat"
+      "../scripts/start_llm_wiki_mcp_http.bat": "start_llm_wiki_mcp_http.bat",
+      "../mcp-server/node_modules/": "mcp-server/node_modules/",
+      "../mcp-server/package.json": "mcp-server/package.json"
     }
   }
 }
