@@ -4,11 +4,24 @@
     "subtitle": "Build and maintain your personal knowledge base with LLMs"
   },
   "common": {
-    "retry": "Retry", "cancel": "Cancel", "ignore": "Ignore", "close": "Close", "ok": "OK", "confirm": "Confirm", "notice": "Notice",
-    "dismiss": "Dismiss", "loading": "Loading...", "optional": "optional"
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "ignore": "Ignore",
+    "close": "Close",
+    "ok": "OK",
+    "confirm": "Confirm",
+    "notice": "Notice",
+    "dismiss": "Dismiss",
+    "loading": "Loading...",
+    "optional": "optional"
   },
-  "layout": { "showSidebar": "Show sidebar", "hideSidebar": "Hide sidebar" },
-  "errors": { "generic": "Something went wrong" },
+  "layout": {
+    "showSidebar": "Show sidebar",
+    "hideSidebar": "Hide sidebar"
+  },
+  "errors": {
+    "generic": "Something went wrong"
+  },
   "mermaid": {
     "renderFailed": "Mermaid diagram could not be rendered",
     "showDetails": "Show parser details",
@@ -49,10 +62,16 @@
     "allSources": "All sources",
     "noWikiPages": "No wiki pages yet. Import sources to get started.",
     "typeLabels": {
-      "overview": "Overview", "entity": "Entities", "concept": "Concepts",
-      "source": "Sources", "synthesis": "Synthesis", "finding": "Findings",
-      "thesis": "Theses", "methodology": "Methodologies",
-      "comparison": "Comparisons", "query": "Queries"
+      "overview": "Overview",
+      "entity": "Entities",
+      "concept": "Concepts",
+      "source": "Sources",
+      "synthesis": "Synthesis",
+      "finding": "Findings",
+      "thesis": "Theses",
+      "methodology": "Methodologies",
+      "comparison": "Comparisons",
+      "query": "Queries"
     }
   },
   "editor": {
@@ -94,7 +113,10 @@
       "createFailed": "The missing page could not be created.",
       "emptyDraftError": "The model returned an empty draft."
     },
-    "frontmatter": { "origin": "Origin", "more": "More" },
+    "frontmatter": {
+      "origin": "Origin",
+      "more": "More"
+    },
     "rawMarkdownEditor": "Raw Markdown editor"
   },
   "research": {
@@ -533,7 +555,7 @@
           "activeDefault": "Use active model",
           "hint": "Choose separate models for interactive chat and document ingest. The active model remains the fallback."
         },
-      "projectOverride": {
+        "projectOverride": {
           "enabled": "Use a project-specific model",
           "provider": "Project provider",
           "selectProvider": "Select a provider",
@@ -619,7 +641,6 @@
           "max": "Max",
           "custom": "Custom",
           "budgetTokens": "thinking budget tokens",
-
           "hint": "Controls reasoning for chat. Document ingest uses the separate setting below.",
           "ingestTitle": "Reasoning during ingest",
           "ingestHint": "Off is usually right: ingest asks for structured output and thinking costs time without helping. Raise it only if the model refuses to run with reasoning disabled."
@@ -832,15 +853,15 @@
         "openHealthHint": "/health never requires authentication. Other endpoints follow the access mode below, except Agent chat, cancellation, page embedding, and source file mutations, which always require a token.",
         "allowUnauthenticated": "Allow access without a token",
         "allowUnauthenticatedHint": "Use only for trusted local agents. Any process or browser page on this machine can call the API while this is enabled.",
-        "allowLanAccess": "Allow API and Clip server access from the local network",
-        "allowLanAccessHint": "After restarting the app, the API and Clip server listen on 0.0.0.0 instead of 127.0.0.1. Use only on trusted networks, and keep token auth enabled unless you fully trust the LAN.",
+        "allowLanAccess": "Allow API, Clip server, and HTTP MCP access from the local network",
+        "allowLanAccessHint": "API, Clip server, and HTTP MCP share this LAN setting. HTTP MCP reloads immediately after Save; API and Clip bind-address changes apply after restarting the app.",
         "mcpEnable": "Enable MCP access",
-        "mcpEnableHint": "MCP uses the local API and the same token rules. Keep the HTTP API enabled, then connect an MCP client to the bundled Node server.",
+        "mcpEnableHint": "When MCP access is enabled, LLM Wiki automatically starts the bundled HTTP MCP service on port 19898. No separate launcher is required.",
         "mcpUsage": "MCP usage",
-        "mcpUsageHint": "Build once with `npm run mcp:build`, then configure your MCP client to run the server below. MCP exposes project, search, chat, source write/delete, rescan, and graph tools. Source write/delete always require LLM_WIKI_API_TOKEN.",
+        "mcpUsageHint": "HTTP MCP starts automatically. The stdio configuration below remains available for clients that prefer a child-process MCP connection.",
         "mcpPathUnavailable": "MCP server entry was not found. Run `npm run mcp:build` from the LLM Wiki repository, then reopen Settings.",
-        "mcpHttpTitle": "HTTP MCP (Streamable HTTP)",
-        "mcpHttpHint": "Use 127.0.0.1 for local clients. Use 0.0.0.0 to listen on the LAN; GET /health reports detected LAN MCP URLs. Set LLM_WIKI_MCP_AUTH_TOKEN before exposing MCP to a LAN.",
+        "mcpHttpTitle": "HTTP MCP (automatic)",
+        "mcpHttpHint": "Starts automatically with LLM Wiki on port 19898. LAN binding follows the shared API/Clip LAN switch, and HTTP MCP transport authentication reuses the configured API token unless LLM_WIKI_MCP_AUTH_TOKEN is set.",
         "token": "Access token",
         "tokenHint": "Send as `Authorization: Bearer <token>` or `X-LLM-Wiki-Token: <token>`. Read endpoints may omit it when unauthenticated access is enabled, but Agent chat, cancellation, page embedding, and source file mutations always require it. The environment variable LLM_WIKI_API_TOKEN overrides this field if set.",
         "tokenPlaceholder": "Paste an existing token or click Generate",
@@ -881,7 +902,11 @@
         "endpointRescanNote": "Triggers a backend rescan using your Source Watch config.",
         "endpointEmbedPageNote": "Index one existing wiki/*.md page. JSON body: { path, force? }. Returns its revision and written chunk count. A token is always required.",
         "endpointChatNote": "Agent chat. Returns JSON by default; use stream: true or Accept: text/event-stream for SSE. A token is always required.",
-        "endpointChatCancelNote": "Cancels the active Agent turn for a session. A token is always required."
+        "endpointChatCancelNote": "Cancels the active Agent turn for a session. A token is always required.",
+        "mcpHttpEndpoint": "MCP endpoint",
+        "mcpHttpHealth": "Health",
+        "mcpHttpLanOn": "LAN access is enabled: HTTP MCP listens on 0.0.0.0:19898. Use this computer's LAN IP from other devices.",
+        "mcpHttpLanOff": "LAN access is disabled: HTTP MCP only listens on 127.0.0.1:19898."
       },
       "output": {
         "title": "Output Preferences",
@@ -1081,12 +1106,25 @@
     "fileSync": "File Sync",
     "rescan": "Rescan",
     "rescanTitle": "Scan project files for external changes",
-    "changeKinds": { "created": "Created", "modified": "Modified", "deleted": "Deleted" },
+    "changeKinds": {
+      "created": "Created",
+      "modified": "Modified",
+      "deleted": "Deleted"
+    },
     "fileTypes": {
-      "entity": "Entity", "concept": "Concept", "source": "Source", "query": "Query",
-      "synthesis": "Synthesis", "comparison": "Comparison", "finding": "Finding",
-      "thesis": "Thesis", "methodology": "Methodology", "overview": "Overview",
-      "index": "Index", "log": "Log", "file": "File"
+      "entity": "Entity",
+      "concept": "Concept",
+      "source": "Source",
+      "query": "Query",
+      "synthesis": "Synthesis",
+      "comparison": "Comparison",
+      "finding": "Finding",
+      "thesis": "Thesis",
+      "methodology": "Methodology",
+      "overview": "Overview",
+      "index": "Index",
+      "log": "Log",
+      "file": "File"
     }
   },
   "fileTree": {
