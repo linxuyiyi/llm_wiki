@@ -46,7 +46,14 @@ jobs:
         run: npm run test:mocks
 
       - name: MCP tests
-        run: npm run mcp:test
+        shell: powershell
+        run: |
+          npm --prefix mcp-server run build
+          $tests = Get-ChildItem -Path mcp-server/dist/test -Filter "*.test.js" -File | ForEach-Object { $_.FullName }
+          if (-not $tests) {
+            throw "No MCP test files were generated"
+          }
+          node --test $tests
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
