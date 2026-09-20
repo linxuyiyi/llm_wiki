@@ -25,9 +25,9 @@ const API_PREFIX: &str = "/api/v1";
 const MAX_BODY_BYTES: usize = 1024 * 1024;
 const MAX_CHAT_BODY_BYTES: usize = 40 * 1024 * 1024;
 const MAX_SOURCE_FILE_BYTES: usize = 100 * 1024 * 1024;
-// Base64 adds roughly 4/3 overhead; keep the larger limit scoped to Astra source writes.
+// Base64 adds roughly 4/3 overhead; keep the larger limit scoped to source file writes.
 const MAX_SOURCE_BODY_BYTES: usize = 140 * 1024 * 1024;
-const ASTRA_SOURCE_PREFIX: &str = "raw/sources/astra";
+const SOURCE_ROOT: &str = "raw/sources";
 const MAX_FILE_CONTENT_BYTES: u64 = 2 * 1024 * 1024;
 const DEFAULT_MAX_FILES: usize = 2_000;
 const HARD_MAX_FILES: usize = 10_000;
@@ -368,10 +368,10 @@ fn handle_request(
             handle_rescan(app, project_id)
         }
         (&Method::Put, ["projects", project_id, "sources", "file"]) => {
-            handle_put_astra_source(app, project_id, body)
+            handle_put_source(app, project_id, body)
         }
         (&Method::Delete, ["projects", project_id, "sources", "file"]) => {
-            handle_delete_astra_source(app, project_id, query)
+            handle_delete_source(app, project_id, query)
         }
         (&Method::Post, ["projects", project_id, "pages", "embed"]) => {
             handle_embed_page(app, project_id, body)
@@ -2546,13 +2546,13 @@ fn resolve_link(raw: &str, ids: &BTreeSet<String>) -> Option<String> {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AstraSourceWriteRequest {
+struct SourceWriteRequest {
     path: String,
     content: Option<String>,
     content_base64: Option<String>,
 }
 
-fn astra_source_rel(input: &str) -> Result<String, String> {
+fn source_api_rel(input: &str) -> Result<String, String> {
     if input.trim().is_empty() {
         return Err("Source path must not be empty".to_string());
     }
@@ -2596,22 +2596,22 @@ fn astra_source_rel(input: &str) -> Result<String, String> {
         }
         parts.push(part);
     }
-    Ok(format!("{ASTRA_SOURCE_PREFIX}/{}", parts.join("/")))
+    Ok(format!("{SOURCE_ROOT}/{}", parts.join("/")))
 }
 
-fn astra_source_write_path(project_path: &str, input: &str) -> Result<(String, PathBuf), String> {
-    let rel = astra_source_rel(input)?;
+fn source_api_write_path(project_path: &str, input: &str) -> Result<(String, PathBuf), String> {
+    let rel = source_api_rel(input)?;
     let project_root = PathBuf::from(project_path);
-    let managed_root = project_root.join(ASTRA_SOURCE_PREFIX);
+    let managed_root = project_root.join(SOURCE_ROOT);
     fs::create_dir_all(&managed_root)
-        .map_err(|e| format!("Failed to create Astra source root: {e}"))?;
+        .map_err(|e| format!("Failed to create source root: {e}"))?;
     let managed_root = managed_root
         .canonicalize()
-        .map_err(|e| format!("Failed to resolve Astra source root: {e}"))?;
+        .map_err(|e| format!("Failed to resolve source root: {e}"))?;
 
     let user_rel = rel
-        .strip_prefix(&format!("{ASTRA_SOURCE_PREFIX}/"))
-        .ok_or_else(|| "Invalid Astra source path".to_string())?;
+        .strip_prefix(&format!("{SOURCE_ROOT}/"))
+        .ok_or_else(|| "Invalid source path".to_string())?;
     let mut segments = user_rel.split('/').collect::<Vec<_>>();
     let file_name = segments
         .pop()
@@ -2624,7 +2624,7 @@ fn astra_source_write_path(project_path: &str, input: &str) -> Result<(String, P
             let meta = fs::symlink_metadata(&parent)
                 .map_err(|e| format!("Failed to inspect source directory: {e}"))?;
             if meta.file_type().is_symlink() || !meta.is_dir() {
-                return Err("Astra source path contains a symlink or non-directory segment".to_string());
+                return Err("Source path contains a symlink or non-directory segment".to_string());
             }
         } else {
             fs::create_dir(&parent)
@@ -2634,7 +2634,7 @@ fn astra_source_write_path(project_path: &str, input: &str) -> Result<(String, P
             .canonicalize()
             .map_err(|e| format!("Failed to resolve source directory: {e}"))?;
         if !canonical.starts_with(&managed_root) {
-            return Err("Resolved source directory escapes raw/sources/astra".to_string());
+            return Err("Resolved source directory escapes raw/sources".to_string());
         }
         parent = canonical;
     }
@@ -2644,36 +2644,36 @@ fn astra_source_write_path(project_path: &str, input: &str) -> Result<(String, P
         let meta = fs::symlink_metadata(&target)
             .map_err(|e| format!("Failed to inspect source file: {e}"))?;
         if meta.file_type().is_symlink() || !meta.is_file() {
-            return Err("Astra source target must be a regular file".to_string());
+            return Err("Source target must be a regular file".to_string());
         }
     }
     Ok((rel, target))
 }
 
-fn astra_source_existing_path(project_path: &str, input: &str) -> Result<(String, PathBuf), String> {
-    let rel = astra_source_rel(input)?;
+fn source_api_existing_path(project_path: &str, input: &str) -> Result<(String, PathBuf), String> {
+    let rel = source_api_rel(input)?;
     let project_root = PathBuf::from(project_path);
-    let managed_root = project_root.join(ASTRA_SOURCE_PREFIX);
+    let managed_root = project_root.join(SOURCE_ROOT);
     if !managed_root.exists() {
-        return Err("Astra source file not found".to_string());
+        return Err("Source file not found".to_string());
     }
     let managed_root = managed_root
         .canonicalize()
-        .map_err(|e| format!("Failed to resolve Astra source root: {e}"))?;
+        .map_err(|e| format!("Failed to resolve source root: {e}"))?;
     let target = project_root.join(&rel);
     if !target.exists() {
-        return Err("Astra source file not found".to_string());
+        return Err("Source file not found".to_string());
     }
     let meta = fs::symlink_metadata(&target)
         .map_err(|e| format!("Failed to inspect source file: {e}"))?;
     if meta.file_type().is_symlink() || !meta.is_file() {
-        return Err("Astra source target must be a regular file".to_string());
+        return Err("Source target must be a regular file".to_string());
     }
     let target = target
         .canonicalize()
         .map_err(|e| format!("Failed to resolve source file: {e}"))?;
     if !target.starts_with(&managed_root) {
-        return Err("Resolved source file escapes raw/sources/astra".to_string());
+        return Err("Resolved source file escapes raw/sources".to_string());
     }
     Ok((rel, target))
 }
@@ -2691,7 +2691,7 @@ fn rescan_after_source_mutation(
     )
 }
 
-fn handle_put_astra_source(app: &AppHandle, project_id: &str, body: &str) -> ApiResponse {
+fn handle_put_source(app: &AppHandle, project_id: &str, body: &str) -> ApiResponse {
     let project = match resolve_project(app, project_id) {
         Ok(project) => project,
         Err(e) => return err(404, e),
@@ -2699,10 +2699,10 @@ fn handle_put_astra_source(app: &AppHandle, project_id: &str, body: &str) -> Api
     if !project.current {
         return err(
             409,
-            "Astra source sync currently requires the target project to be the active LLM Wiki project",
+            "Source file mutation currently requires the target project to be the active LLM Wiki project",
         );
     }
-    let req = match serde_json::from_str::<AstraSourceWriteRequest>(body) {
+    let req = match serde_json::from_str::<SourceWriteRequest>(body) {
         Ok(req) => req,
         Err(e) => return err(400, format!("Invalid request body: {e}")),
     };
@@ -2719,14 +2719,14 @@ fn handle_put_astra_source(app: &AppHandle, project_id: &str, body: &str) -> Api
         return err(413, "Source file exceeds the 100 MB limit");
     }
 
-    let (rel, target) = match astra_source_write_path(&project.path, &req.path) {
+    let (rel, target) = match source_api_write_path(&project.path, &req.path) {
         Ok(value) => value,
         Err(e) => return err(400, e),
     };
     let existed = target.exists();
     commands::file_sync::mark_app_write_path(&target);
     if let Err(e) = fs::write(&target, &bytes) {
-        return err(500, format!("Failed to write Astra source file: {e}"));
+        return err(500, format!("Failed to write source file: {e}"));
     }
     commands::file_sync::mark_app_write_path(&target);
 
@@ -2743,7 +2743,7 @@ fn handle_put_astra_source(app: &AppHandle, project_id: &str, body: &str) -> Api
     }
 }
 
-fn handle_delete_astra_source(app: &AppHandle, project_id: &str, query: &str) -> ApiResponse {
+fn handle_delete_source(app: &AppHandle, project_id: &str, query: &str) -> ApiResponse {
     let project = match resolve_project(app, project_id) {
         Ok(project) => project,
         Err(e) => return err(404, e),
@@ -2751,22 +2751,22 @@ fn handle_delete_astra_source(app: &AppHandle, project_id: &str, query: &str) ->
     if !project.current {
         return err(
             409,
-            "Astra source sync currently requires the target project to be the active LLM Wiki project",
+            "Source file mutation currently requires the target project to be the active LLM Wiki project",
         );
     }
     let params = parse_query(query);
     let Some(path) = params.get("path") else {
         return err(400, "Missing path query parameter");
     };
-    let (rel, target) = match astra_source_existing_path(&project.path, path) {
+    let (rel, target) = match source_api_existing_path(&project.path, path) {
         Ok(value) => value,
-        Err(e) if e == "Astra source file not found" => return err(404, e),
+        Err(e) if e == "Source file not found" => return err(404, e),
         Err(e) => return err(400, e),
     };
 
     commands::file_sync::mark_app_write_path(&target);
     if let Err(e) = fs::remove_file(&target) {
-        return err(500, format!("Failed to delete Astra source file: {e}"));
+        return err(500, format!("Failed to delete source file: {e}"));
     }
     commands::file_sync::mark_app_write_path(&target);
 
@@ -2855,15 +2855,15 @@ mod tests {
 
 
     #[test]
-    fn astra_source_rel_accepts_nested_and_unicode_paths() {
+    fn source_api_rel_accepts_nested_and_unicode_paths() {
         assert_eq!(
-            astra_source_rel("自动化工程/AW调用规范.md").unwrap(),
-            "raw/sources/astra/自动化工程/AW调用规范.md"
+            source_api_rel("自动化工程/AW调用规范.md").unwrap(),
+            "raw/sources/自动化工程/AW调用规范.md"
         );
     }
 
     #[test]
-    fn astra_source_rel_rejects_traversal_absolute_hidden_and_reserved_names() {
+    fn source_api_rel_rejects_traversal_absolute_hidden_and_reserved_names() {
         for path in [
             "../evil.md",
             "folder/../../evil.md",
@@ -2877,12 +2877,12 @@ mod tests {
             "bad?.md",
             "trailing./file.md",
         ] {
-            assert!(astra_source_rel(path).is_err(), "{path} must be rejected");
+            assert!(source_api_rel(path).is_err(), "{path} must be rejected");
         }
     }
 
     #[test]
-    fn astra_source_mutations_require_token() {
+    fn source_api_mutations_require_token() {
         assert!(is_token_required_request(
             &Method::Put,
             "/api/v1/projects/p1/sources/file"
@@ -2894,7 +2894,7 @@ mod tests {
     }
 
     #[test]
-    fn astra_source_upload_has_dedicated_body_limit() {
+    fn source_api_upload_has_dedicated_body_limit() {
         assert_eq!(
             body_limit_for_request(
                 &Method::Put,
