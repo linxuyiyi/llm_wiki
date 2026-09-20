@@ -3,6 +3,7 @@ mod api_server;
 mod clip_server;
 mod commands;
 mod cors;
+mod mcp_http;
 mod panic_guard;
 mod proxy;
 mod server_bind;
@@ -287,44 +288,22 @@ fn agent_list_sessions(
 #[tauri::command]
 fn mcp_server_entry_path(app: tauri::AppHandle) -> Result<String, String> {
     run_guarded("mcp_server_entry_path", || {
-        let relative = std::path::Path::new("mcp-server")
-            .join("dist")
-            .join("src")
-            .join("index.js");
-        let mut candidates = Vec::new();
-
-        let mut push_repo_candidates = |base: std::path::PathBuf| {
-            candidates.push(base.join(&relative));
-            candidates.push(base.join("..").join(&relative));
-            candidates.push(base.join("..").join("..").join(&relative));
-        };
-
-        push_repo_candidates(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-        if let Ok(cwd) = std::env::current_dir() {
-            push_repo_candidates(cwd);
-        }
-        if let Ok(resource_dir) = app.path().resource_dir() {
-            candidates.push(resource_dir.join(&relative));
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(exe_dir) = exe.parent() {
-                candidates.push(exe_dir.join(&relative));
-                candidates.push(exe_dir.join("..").join("Resources").join(&relative));
-            }
-        }
-
-        for candidate in &candidates {
-            if candidate.is_file() {
-                return Ok(candidate
-                    .canonicalize()
-                    .unwrap_or_else(|_| candidate.clone())
-                    .to_string_lossy()
-                    .into_owned());
-            }
-        }
-
-        Err("MCP server entry was not found. Run `npm run mcp:build` from the LLM Wiki repository, then reopen Settings.".to_string())
+        Ok(mcp_http::resolve_mcp_entry_path(&app)?
+            .to_string_lossy()
+            .into_owned())
     })
+}
+
+#[tauri::command]
+fn mcp_http_server_status(app: tauri::AppHandle) -> mcp_http::McpHttpStatus {
+    mcp_http::status(&app)
+}
+
+#[tauri::command]
+fn mcp_http_server_reload_config(
+    app: tauri::AppHandle,
+) -> Result<mcp_http::McpHttpStatus, String> {
+    run_guarded("mcp_http_server_reload_config", || mcp_http::sync_from_config(&app))
 }
 
 fn resolve_agent_project(
@@ -598,12 +577,16 @@ pub fn run() {
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(agent::session::AgentSessionStore::default());
             app.manage(agent::cancel::AgentCancellationRegistry::default());
+            app.manage(mcp_http::McpHttpState::default());
             app.manage(CloseBehaviorState(Mutex::new("minimize".to_string())));
             app.manage(TrayAvailabilityState(Mutex::new(false)));
             // Start the API before optional desktop integrations so the
             // backend is reachable if tray setup or another integration fails.
             clip_server::start_clip_server(app.handle().clone());
             api_server::start_api_server(app.handle().clone());
+            if let Err(err) = mcp_http::sync_from_config(app.handle()) {
+                eprintln!("[MCP HTTP] auto-start skipped: {err}");
+            }
             let tray_available = match tray::create_tray(app.handle()) {
                 Ok(()) => true,
                 Err(err) => {
@@ -669,6 +652,8 @@ pub fn run() {
             agent_list_sessions,
             agent::skills::agent_list_skills,
             mcp_server_entry_path,
+            mcp_http_server_status,
+            mcp_http_server_reload_config,
             commands::vectorstore::vector_upsert,
             commands::vectorstore::vector_search,
             commands::vectorstore::vector_delete,
