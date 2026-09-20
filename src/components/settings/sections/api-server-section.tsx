@@ -60,6 +60,19 @@ export const API_ENDPOINTS: Array<{ method: "GET" | "POST" | "PUT" | "PATCH" | "
   { method: "POST", path: "/api/v1/projects/{id}/chat/{sessionId}/cancel", noteKey: "endpointChatCancelNote" },
 ]
 
+export function buildAstraSourceCurlExamples(token: string) {
+  return {
+    put: `curl -X PUT \\
+  -H "Authorization: Bearer ${token}" \\
+  -H 'Content-Type: application/json' \\
+  ${API_SERVER_BASE_URL}/api/v1/projects/current/sources/file \\
+  -d '{"path":"astra-demo.md","content":"# Astra demo\\nSYNC_TEST=version-1"}'`,
+    delete: `curl -X DELETE \\
+  -H "Authorization: Bearer ${token}" \\
+  "${API_SERVER_BASE_URL}/api/v1/projects/current/sources/file?path=astra-demo.md"`,
+  }
+}
+
 export function ApiServerSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const [showToken, setShowToken] = useState(false)
@@ -145,20 +158,12 @@ export function ApiServerSection({ draft, setDraft }: Props) {
   const sourceTokenForExample = health?.tokenSource === "env"
     ? "$LLM_WIKI_API_TOKEN"
     : draft.apiToken || "<your-token>"
-
-  const sampleSourcePutCurl = useMemo(() => {
-    return `curl -X PUT \\
-  -H "Authorization: Bearer ${sourceTokenForExample}" \\
-  -H 'Content-Type: application/json' \\
-  ${API_SERVER_BASE_URL}/api/v1/projects/current/sources/file \\
-  -d '{"path":"astra-demo.md","content":"# Astra demo\\nSYNC_TEST=version-1"}'`
-  }, [sourceTokenForExample])
-
-  const sampleSourceDeleteCurl = useMemo(() => {
-    return `curl -X DELETE \\
-  -H "Authorization: Bearer ${sourceTokenForExample}" \\
-  "${API_SERVER_BASE_URL}/api/v1/projects/current/sources/file?path=astra-demo.md"`
-  }, [sourceTokenForExample])
+  const sourceCurlExamples = useMemo(
+    () => buildAstraSourceCurlExamples(sourceTokenForExample),
+    [sourceTokenForExample],
+  )
+  const sampleSourcePutCurl = sourceCurlExamples.put
+  const sampleSourceDeleteCurl = sourceCurlExamples.delete
 
   const sampleMcpConfig = useMemo(() => {
     if (!mcpEntryPath) return ""
