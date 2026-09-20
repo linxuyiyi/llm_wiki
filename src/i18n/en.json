@@ -839,6 +839,8 @@
         "mcpUsage": "MCP usage",
         "mcpUsageHint": "Build once with `npm run mcp:build`, then configure your MCP client to run the server below. MCP exposes project, search, chat, source write/delete, rescan, and graph tools. Source write/delete always require LLM_WIKI_API_TOKEN.",
         "mcpPathUnavailable": "MCP server entry was not found. Run `npm run mcp:build` from the LLM Wiki repository, then reopen Settings.",
+        "mcpHttpTitle": "HTTP MCP (Streamable HTTP)",
+        "mcpHttpHint": "Use 127.0.0.1 for local clients. Use 0.0.0.0 to listen on the LAN; GET /health reports detected LAN MCP URLs. Set LLM_WIKI_MCP_AUTH_TOKEN before exposing MCP to a LAN.",
         "token": "Access token",
         "tokenHint": "Send as `Authorization: Bearer <token>` or `X-LLM-Wiki-Token: <token>`. Read endpoints may omit it when unauthenticated access is enabled, but Agent chat, cancellation, page embedding, and source file mutations always require it. The environment variable LLM_WIKI_API_TOKEN overrides this field if set.",
         "tokenPlaceholder": "Paste an existing token or click Generate",
