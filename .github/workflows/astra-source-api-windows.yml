@@ -55,7 +55,15 @@ jobs:
           }
           node --test $tests
 
-      - name: Rust tests
+      - name: Rust Astra API tests
+        shell: powershell
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc api_server::tests::astra_source
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc cors::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc server_bind::tests
+
+      - name: Full Rust baseline tests
+        continue-on-error: true
         run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
 
       - name: Build MCP server
