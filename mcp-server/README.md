@@ -75,3 +75,37 @@ The MCP server inherits the desktop API's security model:
 - For multi-project use, call `llm_wiki_set_project` once. The resolved project ID remains fixed for the lifetime of the MCP subprocess even if the desktop UI switches projects, and every project-tool response includes an `activeProject` marker.
 
 Do not pass API tokens via command-line arguments. Prefer environment variables so they do not appear in shell history.
+
+## Streamable HTTP transport
+
+The stdio transport remains the default. To expose the same MCP tools over HTTP:
+
+```bash
+node dist/src/index.js --transport http --host 127.0.0.1 --port 8080
+```
+
+Endpoints:
+
+- MCP: `http://127.0.0.1:8080/mcp`
+- Health: `http://127.0.0.1:8080/health`
+
+For LAN access, listen on all IPv4 interfaces:
+
+```bash
+node dist/src/index.js --transport http --host 0.0.0.0 --port 8080
+```
+
+When `0.0.0.0` is used, the server detects non-loopback IPv4 addresses and exposes them in `GET /health` as `lanMcpUrls`. The Windows launcher `scripts/start_llm_wiki_mcp_http.bat` prints the same LAN URLs.
+
+Configuration can also be supplied with environment variables:
+
+```text
+LLM_WIKI_MCP_TRANSPORT=http
+LLM_WIKI_MCP_HOST=0.0.0.0
+LLM_WIKI_MCP_PORT=8080
+LLM_WIKI_MCP_PATH=/mcp
+LLM_WIKI_MCP_AUTH_TOKEN=<optional transport token>
+```
+
+If `LLM_WIKI_MCP_AUTH_TOKEN` is set, clients must send either `Authorization: Bearer <token>` or `X-API-Key: <token>`. The existing `LLM_WIKI_API_TOKEN` is still used by the MCP process when it calls the LLM Wiki desktop API.
+
