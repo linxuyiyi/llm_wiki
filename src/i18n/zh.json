@@ -839,6 +839,8 @@
         "mcpUsage": "MCP 使用说明",
         "mcpUsageHint": "先执行一次 `npm run mcp:build`，然后让 MCP 客户端运行下面的服务配置。MCP 提供项目、检索、对话、资料源新增/更新/删除、重新扫描和图谱等工具；资料源写入/删除始终需要 LLM_WIKI_API_TOKEN。",
         "mcpPathUnavailable": "没有找到 MCP 服务入口。请在 LLM Wiki 仓库中先执行 `npm run mcp:build`，然后重新打开设置。",
+        "mcpHttpTitle": "HTTP MCP（Streamable HTTP）",
+        "mcpHttpHint": "本机客户端使用 127.0.0.1；需要局域网访问时监听 0.0.0.0。GET /health 会返回检测到的局域网 MCP 地址。向局域网开放 MCP 前建议设置 LLM_WIKI_MCP_AUTH_TOKEN。",
         "token": "访问令牌",
         "tokenHint": "通过 `Authorization: Bearer <token>` 或 `X-LLM-Wiki-Token: <token>` 发送。启用无认证访问后，读取类接口可以省略 token，但 Agent 对话、取消、单页向量化和 Source 文件写操作始终需要 token。环境变量 LLM_WIKI_API_TOKEN 优先生效。",
         "tokenPlaceholder": "粘贴已有 token，或点击生成",
