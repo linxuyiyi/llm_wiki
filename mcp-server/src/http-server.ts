@@ -188,8 +188,13 @@ export async function startHttpMcpServer(
   }
 }
 
+type NetworkInterfaceSnapshot = Record<
+  string,
+  Array<{ address: string; family: string | number; internal: boolean }> | undefined
+>
+
 export function getLanIpv4Addresses(
-  interfaces: NodeJS.Dict<ReturnType<typeof networkInterfaces>[string]> = networkInterfaces(),
+  interfaces: NetworkInterfaceSnapshot = networkInterfaces() as NetworkInterfaceSnapshot,
 ): string[] {
   const addresses = new Set<string>()
   for (const entries of Object.values(interfaces)) {
