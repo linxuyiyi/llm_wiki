@@ -159,6 +159,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "llm_wiki_write_source",
+      description: "Create or update a source file under raw/sources/. The target project must be the active LLM Wiki project and the HTTP API token must be configured.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "Project UUID, project path, or 'current'. Defaults to current." },
+          path: { type: "string", description: "Path relative to raw/sources/, for example automation/aw-rules.md." },
+          content: { type: "string", description: "UTF-8 text content. Provide exactly one of content or content_base64." },
+          content_base64: { type: "string", description: "Base64-encoded binary content. Provide exactly one of content or content_base64." },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "llm_wiki_delete_source",
+      description: "Delete a source file under raw/sources/. The target project must be the active LLM Wiki project and the HTTP API token must be configured.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "Project UUID, project path, or 'current'. Defaults to current." },
+          path: { type: "string", description: "Path relative to raw/sources/." },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: "llm_wiki_rescan_sources",
       description: "Trigger the desktop app's source folder rescan for a project, using the user's Source Watch rules.",
       inputSchema: {
@@ -276,6 +304,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           limit: numberArg(args.limit),
         })
         return textResult(withActiveProject(formatGraph(graph.nodes, graph.edges), scope.project, scope.id))
+      }
+      case "llm_wiki_write_source": {
+        await assertMcpEnabled()
+        const path = stringArg(args.path, "path")
+        const content = typeof args.content === "string" ? args.content : undefined
+        const contentBase64 = typeof args.content_base64 === "string" ? args.content_base64 : undefined
+        if ((content === undefined) === (contentBase64 === undefined)) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            "Provide exactly one of content or content_base64",
+          )
+        }
+        const scope = await resolveProjectScope(args)
+        const result = await client.writeSource(path, scope.id, { content, contentBase64 })
+        return textResult(withActiveProject(JSON.stringify(result, null, 2), scope.project, scope.id))
+      }
+      case "llm_wiki_delete_source": {
+        await assertMcpEnabled()
+        const path = stringArg(args.path, "path")
+        const scope = await resolveProjectScope(args)
+        const result = await client.deleteSource(path, scope.id)
+        return textResult(withActiveProject(JSON.stringify(result, null, 2), scope.project, scope.id))
       }
       case "llm_wiki_rescan_sources": {
         await assertMcpEnabled()
