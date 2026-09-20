@@ -388,13 +388,13 @@ export function ApiServerSection({ draft, setDraft }: Props) {
           <div className="space-y-1">
             <div className="text-sm font-semibold">
               {t("settings.sections.apiServer.allowLanAccess", {
-                defaultValue: "Allow API and Clip server access from the local network",
+                defaultValue: "Allow API, Clip server, and HTTP MCP access from the local network",
               })}
             </div>
             <p className="text-xs leading-relaxed text-muted-foreground">
               {t("settings.sections.apiServer.allowLanAccessHint", {
                 defaultValue:
-                  "After restarting the app, the API and Clip server listen on 0.0.0.0 instead of 127.0.0.1. Use only on trusted networks, and keep token auth enabled unless you fully trust the LAN.",
+                  "API, Clip server, and HTTP MCP share this LAN setting. HTTP MCP reloads immediately after Save; API and Clip bind-address changes apply after restarting the app.",
               })}
             </p>
           </div>
@@ -722,7 +722,7 @@ export function ApiServerSection({ draft, setDraft }: Props) {
             <p className="text-xs leading-relaxed text-muted-foreground">
               {t("settings.sections.apiServer.mcpEnableHint", {
                 defaultValue:
-                  "MCP uses the local API and the same token rules. Keep the HTTP API enabled, then connect an MCP client to the bundled Node server.",
+                  "When MCP access is enabled, LLM Wiki automatically starts the bundled HTTP MCP service on port 19898. No separate launcher is required.",
               })}
             </p>
           </div>
@@ -750,7 +750,7 @@ export function ApiServerSection({ draft, setDraft }: Props) {
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             {t("settings.sections.apiServer.mcpUsageHint", {
               defaultValue:
-                "Build once with `npm run mcp:build`, then configure your MCP client to run the server below. Use LLM_WIKI_API_TOKEN unless unauthenticated access is enabled.",
+                "HTTP MCP starts automatically. The stdio configuration below remains available for clients that prefer a child-process MCP connection.",
             })}
           </p>
           {mcpPathError && (
@@ -792,7 +792,7 @@ export function ApiServerSection({ draft, setDraft }: Props) {
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 {t("settings.sections.apiServer.mcpHttpHint", {
                   defaultValue:
-                    "Starts automatically with LLM Wiki on port 19898. LAN binding follows the existing API and Clip server LAN switch.",
+                    "Starts automatically with LLM Wiki on port 19898. LAN binding follows the shared API/Clip LAN switch, and HTTP MCP transport authentication reuses the configured API token unless LLM_WIKI_MCP_AUTH_TOKEN is set.",
                 })}
               </p>
               <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
@@ -828,7 +828,8 @@ export function ApiServerSection({ draft, setDraft }: Props) {
                 </p>
               )}
             </div>
-          )}        </div>
+          )}
+        </div>
       </div>
     </div>
   )
