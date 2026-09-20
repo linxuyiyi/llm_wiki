@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { apiServerStatus, mcpServerEntryPath } from "@/commands/fs"
+import { apiServerStatus, mcpHttpServerStatus, mcpServerEntryPath, type McpHttpServerStatus } from "@/commands/fs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -81,6 +81,7 @@ export function ApiServerSection({ draft, setDraft }: Props) {
   const [health, setHealth] = useState<ApiHealth | null>(null)
   const [mcpEntryPath, setMcpEntryPath] = useState<string | null>(null)
   const [mcpPathError, setMcpPathError] = useState<string | null>(null)
+  const [mcpHttpStatus, setMcpHttpStatus] = useState<McpHttpServerStatus | null>(null)
   const persistedApiConfig = useWikiStore((s) => s.apiConfig)
 
   useEffect(() => {
@@ -111,8 +112,22 @@ export function ApiServerSection({ draft, setDraft }: Props) {
         setMcpEntryPath(null)
         setMcpPathError(err instanceof Error ? err.message : String(err))
       })
+
+    const refreshMcpHttp = () => {
+      mcpHttpServerStatus()
+        .then((status) => {
+          if (alive) setMcpHttpStatus(status)
+        })
+        .catch(() => {
+          if (alive) setMcpHttpStatus(null)
+        })
+    }
+    refreshMcpHttp()
+    const mcpTimer = window.setInterval(refreshMcpHttp, 3000)
+
     return () => {
       alive = false
+      window.clearInterval(mcpTimer)
     }
   }, [])
 
@@ -188,20 +203,6 @@ export function ApiServerSection({ draft, setDraft }: Props) {
       2,
     )
   }, [draft.apiAllowUnauthenticated, draft.apiToken, health?.tokenSource, mcpEntryPath])
-
-  const sampleMcpHttpCommand = useMemo(() => {
-    if (!mcpEntryPath) return ""
-    const quotedEntry = `"${mcpEntryPath}"`
-    return [
-      "# Local HTTP MCP",
-      `node ${quotedEntry} --transport http --host 127.0.0.1 --port 8080`,
-      "# MCP:    http://127.0.0.1:8080/mcp",
-      "# Health: http://127.0.0.1:8080/health",
-      "",
-      "# LAN HTTP MCP (GET /health reports detected lanMcpUrls)",
-      `node ${quotedEntry} --transport http --host 0.0.0.0 --port 8080`,
-    ].join("\n")
-  }, [mcpEntryPath])
 
   const hasUnsavedApiConfig =
     persistedApiConfig.enabled !== draft.apiEnabled ||
@@ -770,25 +771,64 @@ export function ApiServerSection({ draft, setDraft }: Props) {
               : sampleMcpConfig}
           </pre>
 
-          {!hasUnsavedApiConfig && mcpEntryPath && (
+          {!hasUnsavedApiConfig && draft.apiMcpEnabled && (
             <div className="mt-3 rounded-md border border-border/50 bg-background/50 p-3">
-              <div className="text-xs font-semibold">
-                {t("settings.sections.apiServer.mcpHttpTitle", {
-                  defaultValue: "HTTP MCP (Streamable HTTP)",
-                })}
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold">
+                  {t("settings.sections.apiServer.mcpHttpTitle", {
+                    defaultValue: "HTTP MCP (automatic)",
+                  })}
+                </div>
+                <span className={
+                  mcpHttpStatus?.state === "running"
+                    ? "text-xs text-emerald-600 dark:text-emerald-400"
+                    : mcpHttpStatus?.state === "error"
+                      ? "text-xs text-destructive"
+                      : "text-xs text-muted-foreground"
+                }>
+                  {mcpHttpStatus?.state ?? "…"}
+                </span>
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 {t("settings.sections.apiServer.mcpHttpHint", {
                   defaultValue:
-                    "Use 127.0.0.1 for local clients. Use 0.0.0.0 to listen on the LAN; GET /health reports detected LAN MCP URLs. Set LLM_WIKI_MCP_AUTH_TOKEN before exposing MCP to a LAN.",
+                    "Starts automatically with LLM Wiki on port 19898. LAN binding follows the existing API and Clip server LAN switch.",
                 })}
               </p>
-              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-background/60 px-3 py-2 text-[11px] font-mono leading-relaxed">
-                {sampleMcpHttpCommand}
-              </pre>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                <div className="rounded border border-border/50 bg-background/60 px-3 py-2">
+                  <div className="text-muted-foreground">
+                    {t("settings.sections.apiServer.mcpHttpEndpoint", { defaultValue: "MCP endpoint" })}
+                  </div>
+                  <div className="mt-1 break-all font-mono">
+                    {mcpHttpStatus?.mcpUrl ?? "http://127.0.0.1:19898/mcp"}
+                  </div>
+                </div>
+                <div className="rounded border border-border/50 bg-background/60 px-3 py-2">
+                  <div className="text-muted-foreground">
+                    {t("settings.sections.apiServer.mcpHttpHealth", { defaultValue: "Health" })}
+                  </div>
+                  <div className="mt-1 break-all font-mono">
+                    {mcpHttpStatus?.healthUrl ?? "http://127.0.0.1:19898/health"}
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {draft.apiAllowLanAccess
+                  ? t("settings.sections.apiServer.mcpHttpLanOn", {
+                      defaultValue: "LAN access is enabled: HTTP MCP listens on 0.0.0.0:19898. Use this computer's LAN IP from other devices.",
+                    })
+                  : t("settings.sections.apiServer.mcpHttpLanOff", {
+                      defaultValue: "LAN access is disabled: HTTP MCP only listens on 127.0.0.1:19898.",
+                    })}
+              </p>
+              {mcpHttpStatus?.message && (
+                <p className="mt-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                  {mcpHttpStatus.message}
+                </p>
+              )}
             </div>
-          )}
-        </div>
+          )}        </div>
       </div>
     </div>
   )
