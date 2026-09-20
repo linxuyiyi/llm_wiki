@@ -30,11 +30,11 @@ test("HTTP transport accepts LAN binding and env configuration", () => {
 test("LAN address detection returns only non-loopback IPv4 addresses", () => {
   const addresses = getLanIpv4Addresses({
     Ethernet: [
-      { address: "192.168.10.8", netmask: "255.255.255.0", family: "IPv4", mac: "", internal: false, cidr: "192.168.10.8/24" },
-      { address: "fe80::1", netmask: "ffff::", family: "IPv6", mac: "", internal: false, cidr: "fe80::1/64", scopeid: 0 },
+      { address: "192.168.10.8", family: "IPv4", internal: false },
+      { address: "fe80::1", family: "IPv6", internal: false },
     ],
     Loopback: [
-      { address: "127.0.0.1", netmask: "255.0.0.0", family: "IPv4", mac: "", internal: true, cidr: "127.0.0.1/8" },
+      { address: "127.0.0.1", family: "IPv4", internal: true },
     ],
   })
   assert.deepEqual(addresses, ["192.168.10.8"])
