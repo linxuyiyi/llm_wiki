@@ -1,0 +1,100 @@
+name: Source API Windows Build
+
+on:
+  push:
+    branches:
+      - feature/astra-source-api
+      - feature/astra-source-api-ui
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install protoc
+        shell: powershell
+        run: choco install protoc -y --no-progress
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          npm ci
+          npm --prefix mcp-server ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Frontend unit tests
+        run: npm run test:mocks
+
+      - name: MCP tests
+        shell: powershell
+        run: |
+          npm --prefix mcp-server run build
+          $tests = Get-ChildItem -Path mcp-server/dist/test -Filter "*.test.js" -File | ForEach-Object { $_.FullName }
+          if (-not $tests) {
+            throw "No MCP test files were generated"
+          }
+          node --test $tests
+
+      - name: Rust Source API tests
+        shell: powershell
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc api_server::tests::source_api
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc cors::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc server_bind::tests
+
+      - name: Full Rust baseline tests
+        continue-on-error: true
+        run: cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+
+      - name: Build MCP server
+        run: npm run mcp:build
+
+      - name: Build Windows x64 NSIS installer
+        run: npm run tauri build -- --bundles nsis --target x86_64-pc-windows-msvc
+
+      - name: Collect installer and SHA256
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-package | Out-Null
+          $installer = Get-ChildItem -Path src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -Filter "*-setup.exe" -File | Select-Object -First 1
+          if (-not $installer) {
+            throw "NSIS setup.exe was not generated"
+          }
+          $dest = "dist-package/LLM.Wiki_0.6.11_x64-setup.exe"
+          Copy-Item $installer.FullName $dest -Force
+          $hash = (Get-FileHash $dest -Algorithm SHA256).Hash
+          $size = (Get-Item $dest).Length
+          "file=$dest" | Out-File -FilePath dist-package/build-info.txt -Encoding utf8
+          "size=$size" | Out-File -FilePath dist-package/build-info.txt -Append -Encoding utf8
+          "sha256=$hash" | Out-File -FilePath dist-package/build-info.txt -Append -Encoding utf8
+          Get-Content dist-package/build-info.txt
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: LLM.Wiki_0.6.11_x64-setup
+          path: |
+            dist-package/LLM.Wiki_0.6.11_x64-setup.exe
+            dist-package/build-info.txt
+          if-no-files-found: error
