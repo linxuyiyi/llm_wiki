@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/astra-source-api
+      - feature/astra-source-api-ui
   workflow_dispatch:
 
 permissions:
