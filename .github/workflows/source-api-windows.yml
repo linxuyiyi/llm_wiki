@@ -130,34 +130,23 @@ jobs:
           Copy-Item "mcp-server/runtime" (Join-Path $mcp "runtime") -Recurse -Force
 
           $node = Join-Path $mcp "runtime/node.exe"
-          $entry = Join-Path $mcp "dist/src/index.js"
           $stdout = Join-Path $root "stdout.log"
           $stderr = Join-Path $root "stderr.log"
 
-          $psi = [System.Diagnostics.ProcessStartInfo]::new()
-          $psi.FileName = $node
-          $psi.UseShellExecute = $false
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError = $true
-          $psi.CreateNoWindow = $true
-          $psi.ArgumentList.Add($entry)
-          $psi.ArgumentList.Add("--transport")
-          $psi.ArgumentList.Add("http")
-          $psi.ArgumentList.Add("--host")
-          $psi.ArgumentList.Add("127.0.0.1")
-          $psi.ArgumentList.Add("--port")
-          $psi.ArgumentList.Add("19899")
-
-          $proc = [System.Diagnostics.Process]::new()
-          $proc.StartInfo = $psi
-          if (-not $proc.Start()) { throw "Failed to start bundled HTTP MCP runtime" }
+          # Match the production Rust launcher: run from mcp-server and pass a
+          # relative entry path so Windows drive-letter / space parsing is bypassed.
+          $proc = Start-Process -FilePath $node -WorkingDirectory $mcp -ArgumentList @(
+            "dist/src/index.js",
+            "--transport", "http",
+            "--host", "127.0.0.1",
+            "--port", "19899"
+          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 
           try {
             $health = $null
             for ($i = 0; $i -lt 40; $i++) {
               if ($proc.HasExited) {
-                $errText = $proc.StandardError.ReadToEnd()
-                if ($errText) { Write-Host $errText }
+                Get-Content $stderr -ErrorAction SilentlyContinue
                 throw "Bundled HTTP MCP runtime exited early with code $($proc.ExitCode)"
               }
               try {
