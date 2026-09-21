@@ -8,8 +8,9 @@ const runtimeDir = join(root, "mcp-server", "runtime")
 const target = join(runtimeDir, process.platform === "win32" ? "node.exe" : "node")
 
 mkdirSync(runtimeDir, { recursive: true })
-copyFileSync(process.execPath, target)
+const runtimeSource = process.env.LLM_WIKI_MCP_NODE_RUNTIME || process.execPath
+copyFileSync(runtimeSource, target)
 if (process.platform !== "win32") {
   chmodSync(target, 0o755)
 }
-console.log(`Prepared bundled Node runtime: ${target}`)
+console.log(`Prepared bundled Node runtime: ${target} (source: ${runtimeSource})`)
