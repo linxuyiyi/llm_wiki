@@ -118,6 +118,58 @@ jobs:
           }
           & "mcp-server/runtime/node.exe" --version
 
+      - name: Bundled HTTP MCP runtime smoke test
+        shell: powershell
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "LLM Wiki MCP Runtime Test"
+          $mcp = Join-Path $root "mcp-server"
+          New-Item -ItemType Directory -Force -Path $mcp | Out-Null
+          Copy-Item "mcp-server/dist" (Join-Path $mcp "dist") -Recurse -Force
+          Copy-Item "mcp-server/node_modules" (Join-Path $mcp "node_modules") -Recurse -Force
+          Copy-Item "mcp-server/package.json" (Join-Path $mcp "package.json") -Force
+          Copy-Item "mcp-server/runtime" (Join-Path $mcp "runtime") -Recurse -Force
+
+          $node = Join-Path $mcp "runtime/node.exe"
+          $entry = Join-Path $mcp "dist/src/index.js"
+          $stdout = Join-Path $root "stdout.log"
+          $stderr = Join-Path $root "stderr.log"
+
+          $proc = Start-Process -FilePath $node -ArgumentList @(
+            $entry,
+            "--transport", "http",
+            "--host", "127.0.0.1",
+            "--port", "19899"
+          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          try {
+            $health = $null
+            for ($i = 0; $i -lt 40; $i++) {
+              if ($proc.HasExited) {
+                Get-Content $stderr -ErrorAction SilentlyContinue
+                throw "Bundled HTTP MCP runtime exited early with code $($proc.ExitCode)"
+              }
+              try {
+                $health = Invoke-RestMethod -Uri "http://127.0.0.1:19899/health" -TimeoutSec 2
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+                $proc.Refresh()
+              }
+            }
+            if (-not $health) {
+              Get-Content $stderr -ErrorAction SilentlyContinue
+              throw "Bundled HTTP MCP runtime did not become healthy"
+            }
+            if ($health.status -ne "ok") { throw "Unexpected bundled HTTP MCP health status" }
+            Write-Host "Bundled HTTP MCP runtime smoke test passed"
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+            Get-Content $stderr -ErrorAction SilentlyContinue
+          }
+
       - name: Build Windows x64 NSIS installer
         run: npm run tauri build -- --bundles nsis --target x86_64-pc-windows-msvc
 
