@@ -1,0 +1,111 @@
+name: macOS Apple Silicon Build
+
+on:
+  push:
+    branches:
+      - fix/auto-http-mcp-startup
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_NET_RETRY: "5"
+      CARGO_HTTP_TIMEOUT: "60"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install protoc
+        run: brew install protobuf
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix mcp-server ci
+
+      - name: Verify macOS ARM64 PDFium
+        run: |
+          shasum -a 256 -c src-tauri/pdfium/SHA256SUMS
+          file src-tauri/pdfium/libpdfium.dylib
+
+      - name: Prepare ARM64 Node runtime
+        shell: bash
+        run: |
+          NODE_VERSION="20.20.2"
+          ARCHIVE="node-v${NODE_VERSION}-darwin-arm64.tar.gz"
+          curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${ARCHIVE}" -o "$RUNNER_TEMP/$ARCHIVE"
+          tar -xzf "$RUNNER_TEMP/$ARCHIVE" -C "$RUNNER_TEMP"
+          NODE_RUNTIME="$RUNNER_TEMP/node-v${NODE_VERSION}-darwin-arm64/bin/node"
+          file "$NODE_RUNTIME"
+          chmod +x "$NODE_RUNTIME"
+          echo "LLM_WIKI_MCP_NODE_RUNTIME=$NODE_RUNTIME" >> "$GITHUB_ENV"
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: MCP tests
+        run: npm --prefix mcp-server test
+
+      - name: Build macOS ARM64 DMG
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build -- --bundles dmg --target aarch64-apple-darwin
+
+      - name: Verify bundled app runtime
+        shell: bash
+        run: |
+          APP_PATH=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/macos -maxdepth 1 -name "*.app" -print -quit)
+          test -n "$APP_PATH"
+          NODE_PATH="$APP_PATH/Contents/Resources/mcp-server/runtime/node"
+          test -f "$NODE_PATH"
+          file "$NODE_PATH"
+          file "$APP_PATH/Contents/MacOS/"*
+
+      - name: Collect DMG and SHA256
+        shell: bash
+        run: |
+          mkdir -p dist-macos
+          DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" -print -quit)
+          test -n "$DMG"
+          cp "$DMG" dist-macos/LLM.Wiki_0.6.11_macOS_arm64.dmg
+          SIZE=$(stat -f%z dist-macos/LLM.Wiki_0.6.11_macOS_arm64.dmg)
+          HASH=$(shasum -a 256 dist-macos/LLM.Wiki_0.6.11_macOS_arm64.dmg | awk '{print $1}')
+          {
+            echo "file=LLM.Wiki_0.6.11_macOS_arm64.dmg"
+            echo "size=$SIZE"
+            echo "sha256=$HASH"
+          } > dist-macos/build-info.txt
+          cat dist-macos/build-info.txt
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: LLM.Wiki_0.6.11_macOS_arm64
+          path: |
+            dist-macos/LLM.Wiki_0.6.11_macOS_arm64.dmg
+            dist-macos/build-info.txt
+          if-no-files-found: error
+          retention-days: 14
