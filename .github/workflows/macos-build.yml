@@ -65,13 +65,9 @@ jobs:
         run: npm --prefix mcp-server test
 
       - name: Build macOS ARM64 DMG
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # Branch/test builds are intentionally unsigned. Release signing and
+        # notarization belong to the tagged release workflow once valid Apple
+        # Developer credentials are configured.
         run: npm run tauri build -- --bundles dmg --target aarch64-apple-darwin
 
       - name: Verify bundled app runtime
