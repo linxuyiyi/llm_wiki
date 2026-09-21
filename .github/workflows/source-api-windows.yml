@@ -91,7 +91,10 @@ jobs:
             if ($proc -and -not $proc.HasExited) {
               Stop-Process -Id $proc.Id -Force
             }
-            Get-Content $stderr -ErrorAction SilentlyContinue
+            if ($proc) {
+              $errText = $proc.StandardError.ReadToEnd()
+              if ($errText) { Write-Host $errText }
+            }
           }
 
       - name: Rust Source API tests
@@ -134,18 +137,30 @@ jobs:
           $stdout = Join-Path $root "stdout.log"
           $stderr = Join-Path $root "stderr.log"
 
-          $proc = Start-Process -FilePath $node -ArgumentList @(
-            $entry,
-            "--transport", "http",
-            "--host", "127.0.0.1",
-            "--port", "19899"
-          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $psi = [System.Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = $node
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.CreateNoWindow = $true
+          $psi.ArgumentList.Add($entry)
+          $psi.ArgumentList.Add("--transport")
+          $psi.ArgumentList.Add("http")
+          $psi.ArgumentList.Add("--host")
+          $psi.ArgumentList.Add("127.0.0.1")
+          $psi.ArgumentList.Add("--port")
+          $psi.ArgumentList.Add("19899")
+
+          $proc = [System.Diagnostics.Process]::new()
+          $proc.StartInfo = $psi
+          if (-not $proc.Start()) { throw "Failed to start bundled HTTP MCP runtime" }
 
           try {
             $health = $null
             for ($i = 0; $i -lt 40; $i++) {
               if ($proc.HasExited) {
-                Get-Content $stderr -ErrorAction SilentlyContinue
+                $errText = $proc.StandardError.ReadToEnd()
+                if ($errText) { Write-Host $errText }
                 throw "Bundled HTTP MCP runtime exited early with code $($proc.ExitCode)"
               }
               try {
