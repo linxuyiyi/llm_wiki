@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/auto-http-mcp
+      - fix/auto-http-mcp-startup
   workflow_dispatch:
 
 permissions:
