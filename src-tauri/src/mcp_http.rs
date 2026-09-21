@@ -121,6 +121,30 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
             return Err(message);
         }
     };
+    let mcp_root = entry
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .ok_or_else(|| format!("Invalid bundled MCP entry path: {}", entry.display()))?
+        .to_path_buf();
+    let relative_entry = Path::new("dist").join("src").join("index.js");
+    if !mcp_root.join(&relative_entry).is_file() {
+        let message = format!(
+            "Bundled MCP entry is missing under resource directory: {}",
+            mcp_root.join(&relative_entry).display()
+        );
+        let status = status_for(
+            "error",
+            host,
+            None,
+            config.transport_token.is_some(),
+            Some(message.clone()),
+            None,
+        );
+        set_status(&state, status);
+        return Err(message);
+    }
+
     let runtime = resolve_node_runtime(app);
     let log_path = app
         .path()
@@ -148,7 +172,8 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
         None => Command::new("node"),
     };
     command
-        .arg(&entry)
+        .current_dir(&mcp_root)
+        .arg(&relative_entry)
         .args([
             "--transport",
             "http",
@@ -454,6 +479,21 @@ fn read_log_tail(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_entry_can_be_launched_from_mcp_root_with_relative_path() {
+        let entry = PathBuf::from(r"D:\LLM Wiki\resources\mcp-server\dist\src\index.js");
+        let root = entry
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .expect("mcp root");
+        assert_eq!(root, Path::new(r"D:\LLM Wiki\resources\mcp-server"));
+        assert_eq!(
+            Path::new("dist").join("src").join("index.js"),
+            PathBuf::from(r"dist\src\index.js")
+        );
+    }
 
     #[test]
     fn status_uses_fixed_http_mcp_port() {
