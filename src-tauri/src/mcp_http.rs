@@ -93,9 +93,34 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
         return Ok(status);
     }
 
-    preflight_port(host)?;
+    if let Err(message) = preflight_port(host) {
+        let status = status_for(
+            "error",
+            host,
+            None,
+            config.transport_token.is_some(),
+            Some(message.clone()),
+            None,
+        );
+        set_status(&state, status);
+        return Err(message);
+    }
 
-    let entry = resolve_mcp_entry_path(app)?;
+    let entry = match resolve_mcp_entry_path(app) {
+        Ok(path) => path,
+        Err(message) => {
+            let status = status_for(
+                "error",
+                host,
+                None,
+                config.transport_token.is_some(),
+                Some(message.clone()),
+                None,
+            );
+            set_status(&state, status);
+            return Err(message);
+        }
+    };
     let runtime = resolve_node_runtime(app);
     let log_path = app
         .path()
@@ -436,6 +461,20 @@ mod tests {
         assert_eq!(status.port, 19898);
         assert_eq!(status.mcp_url, "http://127.0.0.1:19898/mcp");
         assert_eq!(status.health_url, "http://127.0.0.1:19898/health");
+    }
+
+    #[test]
+    fn log_tail_is_compact_for_status_messages() {
+        let path = std::env::temp_dir().join(format!(
+            "llm-wiki-mcp-http-test-{}.log",
+            std::process::id()
+        ));
+        std::fs::write(&path, "line one\nEADDRINUSE: address already in use 0.0.0.0:19898\n")
+            .expect("write log");
+        let tail = read_log_tail(&path).expect("read log");
+        let _ = std::fs::remove_file(&path);
+        assert!(tail.contains("EADDRINUSE"));
+        assert!(!tail.contains('\n'));
     }
 
     #[test]
