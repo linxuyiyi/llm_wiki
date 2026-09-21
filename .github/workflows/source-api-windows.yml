@@ -91,10 +91,7 @@ jobs:
             if ($proc -and -not $proc.HasExited) {
               Stop-Process -Id $proc.Id -Force
             }
-            if ($proc) {
-              $errText = $proc.StandardError.ReadToEnd()
-              if ($errText) { Write-Host $errText }
-            }
+            Get-Content $stderr -ErrorAction SilentlyContinue
           }
 
       - name: Rust Source API tests
