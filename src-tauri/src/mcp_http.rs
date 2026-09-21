@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::fs::OpenOptions;
+use std::io::Read;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 pub const MCP_HTTP_PORT: u16 = 19_898;
@@ -18,6 +23,7 @@ pub struct McpHttpStatus {
     pub pid: Option<u32>,
     pub auth_configured: bool,
     pub message: Option<String>,
+    pub log_path: Option<String>,
 }
 
 pub struct McpHttpState {
@@ -29,7 +35,7 @@ impl Default for McpHttpState {
     fn default() -> Self {
         Self {
             child: Mutex::new(None),
-            status: Mutex::new(status_for("disabled", "127.0.0.1", None, false, None)),
+            status: Mutex::new(status_for("disabled", "127.0.0.1", None, false, None, None)),
         }
     }
 }
@@ -81,13 +87,36 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
             } else {
                 "MCP access is disabled".to_string()
             }),
+            None,
         );
         set_status(&state, status.clone());
         return Ok(status);
     }
 
+    preflight_port(host)?;
+
     let entry = resolve_mcp_entry_path(app)?;
     let runtime = resolve_node_runtime(app);
+    let log_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("Failed to resolve app data directory for HTTP MCP log: {err}"))?
+        .join("mcp-http.log");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("Failed to create HTTP MCP log directory: {err}"))?;
+    }
+    let log_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&log_path)
+        .map_err(|err| format!("Failed to open HTTP MCP log file: {err}"))?;
+    let stdout_log = log_file
+        .try_clone()
+        .map_err(|err| format!("Failed to clone HTTP MCP log handle: {err}"))?;
+    let stderr_log = log_file;
+
 
     let mut command = match runtime {
         Some(path) => Command::new(path),
@@ -107,8 +136,8 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
         ])
         .env("LLM_WIKI_API_BASE_URL", "http://127.0.0.1:19828")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(stderr_log));
 
     if let Some(token) = config.api_token.as_deref() {
         command.env("LLM_WIKI_API_TOKEN", token);
@@ -129,27 +158,46 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
     }
 
     match command.spawn() {
-        Ok(child) => {
+        Ok(mut child) => {
             let pid = child.id();
-            let mut guard = state
-                .child
-                .lock()
-                .map_err(|_| "HTTP MCP process state is unavailable".to_string())?;
-            *guard = Some(child);
-            drop(guard);
-            let status = status_for(
-                "running",
-                host,
-                Some(pid),
-                config.transport_token.is_some(),
-                None,
-            );
-            set_status(&state, status.clone());
-            eprintln!(
-                "[MCP HTTP] auto-started pid={pid} at {host}:{}{}",
-                MCP_HTTP_PORT, MCP_HTTP_PATH
-            );
-            Ok(status)
+            match wait_until_ready(&mut child, &log_path) {
+                Ok(()) => {
+                    let mut guard = state
+                        .child
+                        .lock()
+                        .map_err(|_| "HTTP MCP process state is unavailable".to_string())?;
+                    *guard = Some(child);
+                    drop(guard);
+                    let status = status_for(
+                        "running",
+                        host,
+                        Some(pid),
+                        config.transport_token.is_some(),
+                        None,
+                        Some(log_path.to_string_lossy().into_owned()),
+                    );
+                    set_status(&state, status.clone());
+                    eprintln!(
+                        "[MCP HTTP] auto-started pid={pid} at {host}:{}{}",
+                        MCP_HTTP_PORT, MCP_HTTP_PATH
+                    );
+                    Ok(status)
+                }
+                Err(message) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let status = status_for(
+                        "error",
+                        host,
+                        None,
+                        config.transport_token.is_some(),
+                        Some(message.clone()),
+                        Some(log_path.to_string_lossy().into_owned()),
+                    );
+                    set_status(&state, status);
+                    Err(message)
+                }
+            }
         }
         Err(err) => {
             let message = format!(
@@ -161,6 +209,7 @@ pub fn sync_from_config(app: &AppHandle) -> Result<McpHttpStatus, String> {
                 None,
                 config.transport_token.is_some(),
                 Some(message.clone()),
+                Some(log_path.to_string_lossy().into_owned()),
             );
             set_status(&state, status);
             Err(message)
@@ -177,7 +226,17 @@ pub fn status(app: &AppHandle) -> McpHttpStatus {
                 if let Ok(mut status) = state.status.lock() {
                     status.state = "error".to_string();
                     status.pid = None;
-                    status.message = Some(format!("HTTP MCP process exited: {exit}"));
+                    let log_tail = status
+                        .log_path
+                        .as_deref()
+                        .map(Path::new)
+                        .and_then(read_log_tail);
+                    status.message = Some(match log_tail {
+                        Some(tail) if !tail.trim().is_empty() => {
+                            format!("HTTP MCP process exited: {exit}. {tail}")
+                        }
+                        _ => format!("HTTP MCP process exited: {exit}"),
+                    });
                     return status.clone();
                 }
             }
@@ -187,7 +246,7 @@ pub fn status(app: &AppHandle) -> McpHttpStatus {
         .status
         .lock()
         .map(|status| status.clone())
-        .unwrap_or_else(|_| status_for("error", "127.0.0.1", None, false, Some("HTTP MCP status is unavailable".to_string())))
+        .unwrap_or_else(|_| status_for("error", "127.0.0.1", None, false, Some("HTTP MCP status is unavailable".to_string()), None))
 }
 
 pub fn resolve_mcp_entry_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -295,6 +354,7 @@ fn status_for(
     pid: Option<u32>,
     auth_configured: bool,
     message: Option<String>,
+    log_path: Option<String>,
 ) -> McpHttpStatus {
     McpHttpStatus {
         state: state.to_string(),
@@ -305,7 +365,65 @@ fn status_for(
         pid,
         auth_configured,
         message,
+        log_path,
     }
+}
+
+fn preflight_port(host: &str) -> Result<(), String> {
+    TcpListener::bind((host, MCP_HTTP_PORT))
+        .map(|listener| drop(listener))
+        .map_err(|err| {
+            format!(
+                "HTTP MCP cannot listen on {host}:{MCP_HTTP_PORT}: {err}. Another process may already be using port {MCP_HTTP_PORT}."
+            )
+        })
+}
+
+fn wait_until_ready(child: &mut Child, log_path: &Path) -> Result<(), String> {
+    let started = Instant::now();
+    let timeout = Duration::from_secs(5);
+    let address = SocketAddr::from(([127, 0, 0, 1], MCP_HTTP_PORT));
+
+    loop {
+        if let Some(exit) = child
+            .try_wait()
+            .map_err(|err| format!("Failed to inspect HTTP MCP process: {err}"))?
+        {
+            let tail = read_log_tail(log_path).unwrap_or_default();
+            let detail = if tail.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" {tail}")
+            };
+            return Err(format!("HTTP MCP process exited during startup: {exit}.{detail}"));
+        }
+
+        if TcpStream::connect_timeout(&address, Duration::from_millis(150)).is_ok() {
+            return Ok(());
+        }
+
+        if started.elapsed() >= timeout {
+            let tail = read_log_tail(log_path).unwrap_or_default();
+            let detail = if tail.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" {tail}")
+            };
+            return Err(format!(
+                "HTTP MCP did not become ready on 127.0.0.1:{MCP_HTTP_PORT} within 5 seconds.{detail}"
+            ));
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn read_log_tail(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).ok()?;
+    let tail: String = contents.chars().rev().take(4000).collect::<String>().chars().rev().collect();
+    Some(tail.trim().replace('\n', " | "))
 }
 
 #[cfg(test)]
@@ -314,7 +432,7 @@ mod tests {
 
     #[test]
     fn status_uses_fixed_http_mcp_port() {
-        let status = status_for("running", "127.0.0.1", Some(42), true, None);
+        let status = status_for("running", "127.0.0.1", Some(42), true, None, None);
         assert_eq!(status.port, 19898);
         assert_eq!(status.mcp_url, "http://127.0.0.1:19898/mcp");
         assert_eq!(status.health_url, "http://127.0.0.1:19898/health");
