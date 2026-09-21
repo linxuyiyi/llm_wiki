@@ -6,7 +6,7 @@ test("HTTP transport defaults stay local", () => {
   const parsed = parseMcpLaunchOptions(["--transport", "http"], {})
   assert.equal(parsed.transport, "http")
   assert.equal(parsed.http.host, "127.0.0.1")
-  assert.equal(parsed.http.port, 8080)
+  assert.equal(parsed.http.port, 19898)
   assert.equal(parsed.http.path, "/mcp")
 })
 

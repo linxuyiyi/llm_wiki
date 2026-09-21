@@ -3,7 +3,7 @@ name: LLM Wiki HTTP MCP + Source API Windows Build
 on:
   push:
     branches:
-      - feature/http-mcp-source-api
+      - feature/auto-http-mcp
   workflow_dispatch:
 
 permissions:
@@ -63,14 +63,13 @@ jobs:
           $proc = Start-Process node -ArgumentList @(
             "mcp-server/dist/src/index.js",
             "--transport", "http",
-            "--host", "0.0.0.0",
-            "--port", "18080"
+            "--host", "0.0.0.0"
           ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           try {
             $health = $null
             for ($i = 0; $i -lt 40; $i++) {
               try {
-                $health = Invoke-RestMethod -Uri "http://127.0.0.1:18080/health" -TimeoutSec 2
+                $health = Invoke-RestMethod -Uri "http://127.0.0.1:19898/health" -TimeoutSec 2
                 break
               } catch {
                 Start-Sleep -Milliseconds 250
@@ -83,7 +82,7 @@ jobs:
             if ($health.status -ne "ok") { throw "Unexpected HTTP MCP health status: $($health.status)" }
             if ($health.transport -ne "streamable-http") { throw "Unexpected transport: $($health.transport)" }
             if ($health.listenHost -ne "0.0.0.0") { throw "0.0.0.0 binding was not applied" }
-            if ($health.localMcpUrl -ne "http://127.0.0.1:18080/mcp") { throw "Unexpected local MCP URL: $($health.localMcpUrl)" }
+            if ($health.localMcpUrl -ne "http://127.0.0.1:19898/mcp") { throw "Unexpected local MCP URL: $($health.localMcpUrl)" }
             Write-Host "HTTP MCP health check passed"
             $health | ConvertTo-Json -Depth 5
           }
@@ -100,6 +99,7 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc api_server::tests::source_api
           cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc cors::tests
           cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc server_bind::tests
+          cargo test --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc mcp_http::tests
 
       - name: Full Rust baseline tests
         continue-on-error: true
@@ -107,6 +107,15 @@ jobs:
 
       - name: Build MCP server
         run: npm run mcp:build
+
+      - name: Verify bundled Node runtime staging
+        shell: powershell
+        run: |
+          node scripts/prepare_mcp_runtime.mjs
+          if (-not (Test-Path "mcp-server/runtime/node.exe")) {
+            throw "Bundled MCP Node runtime was not staged"
+          }
+          & "mcp-server/runtime/node.exe" --version
 
       - name: Build Windows x64 NSIS installer
         run: npm run tauri build -- --bundles nsis --target x86_64-pc-windows-msvc

@@ -6,7 +6,10 @@ It does **not** scan project folders directly and does **not** copy the app's se
 
 ## Requirements
 
-- Node.js 20+
+For the installed desktop app, the HTTP MCP runtime is bundled and starts automatically when **Settings → API + MCP → Enable MCP access** is enabled. No system Node.js installation or manual launcher is required.
+
+For source development, Node.js 20+ is still required.
+
 - LLM Wiki desktop app running
 - Settings → API + MCP → "Enable local HTTP API"
 - Settings → API + MCP → "Enable MCP access"
@@ -82,33 +85,21 @@ Do not pass API tokens via command-line arguments. Prefer environment variables 
 
 ## Streamable HTTP transport
 
-The stdio transport remains the default. To expose the same MCP tools over HTTP:
+The installed desktop app manages the HTTP MCP process automatically:
+
+- Default MCP URL: `http://127.0.0.1:19898/mcp`
+- Health: `http://127.0.0.1:19898/health`
+- Default listen host: `127.0.0.1`
+- When **Allow API, Clip server, and HTTP MCP access from the local network** is enabled, HTTP MCP listens on `0.0.0.0:19898`.
+- The HTTP MCP transport uses `LLM_WIKI_MCP_AUTH_TOKEN` when explicitly set; otherwise it reuses the effective LLM Wiki API token.
+- Disabling MCP access stops the managed HTTP MCP process.
+
+The stdio transport remains available for clients that prefer to spawn the MCP server themselves.
+
+For source development, the standalone command still works and also defaults to port 19898:
 
 ```bash
-node dist/src/index.js --transport http --host 127.0.0.1 --port 8080
+node dist/src/index.js --transport http --host 127.0.0.1
 ```
 
-Endpoints:
-
-- MCP: `http://127.0.0.1:8080/mcp`
-- Health: `http://127.0.0.1:8080/health`
-
-For LAN access, listen on all IPv4 interfaces:
-
-```bash
-node dist/src/index.js --transport http --host 0.0.0.0 --port 8080
-```
-
-When `0.0.0.0` is used, the server detects non-loopback IPv4 addresses and returns them from `GET /health` as `lanMcpUrls`. The bundled Windows launcher `start_llm_wiki_mcp_http.bat` uses the same HTTP transport.
-
-Configuration can also be supplied with environment variables:
-
-```text
-LLM_WIKI_MCP_TRANSPORT=http
-LLM_WIKI_MCP_HOST=0.0.0.0
-LLM_WIKI_MCP_PORT=8080
-LLM_WIKI_MCP_PATH=/mcp
-LLM_WIKI_MCP_AUTH_TOKEN=<optional transport token>
-```
-
-If `LLM_WIKI_MCP_AUTH_TOKEN` is set, clients must send either `Authorization: Bearer <token>` or `X-API-Key: <token>`. The existing `LLM_WIKI_API_TOKEN` is still used by the MCP process when it calls the LLM Wiki desktop API.
+The legacy `scripts/start_llm_wiki_mcp_http.bat` is retained only as a troubleshooting fallback.

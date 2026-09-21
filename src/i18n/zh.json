@@ -4,11 +4,24 @@
     "subtitle": "用 LLM 构建和维护你的个人知识库"
   },
   "common": {
-    "retry": "重试", "cancel": "取消", "ignore": "忽略", "close": "关闭", "ok": "确定", "confirm": "确认", "notice": "提示",
-    "dismiss": "关闭", "loading": "加载中……", "optional": "可选"
+    "retry": "重试",
+    "cancel": "取消",
+    "ignore": "忽略",
+    "close": "关闭",
+    "ok": "确定",
+    "confirm": "确认",
+    "notice": "提示",
+    "dismiss": "关闭",
+    "loading": "加载中……",
+    "optional": "可选"
   },
-  "layout": { "showSidebar": "展开侧栏", "hideSidebar": "收起侧栏" },
-  "errors": { "generic": "出现错误" },
+  "layout": {
+    "showSidebar": "展开侧栏",
+    "hideSidebar": "收起侧栏"
+  },
+  "errors": {
+    "generic": "出现错误"
+  },
   "mermaid": {
     "renderFailed": "无法渲染 Mermaid 图表",
     "showDetails": "查看解析器详情",
@@ -49,10 +62,16 @@
     "allSources": "全部资料",
     "noWikiPages": "暂无 Wiki 页面，请先导入原始资料。",
     "typeLabels": {
-      "overview": "概览", "entity": "实体", "concept": "概念",
-      "source": "来源", "synthesis": "综合", "finding": "发现",
-      "thesis": "论点", "methodology": "方法论",
-      "comparison": "比较", "query": "查询"
+      "overview": "概览",
+      "entity": "实体",
+      "concept": "概念",
+      "source": "来源",
+      "synthesis": "综合",
+      "finding": "发现",
+      "thesis": "论点",
+      "methodology": "方法论",
+      "comparison": "比较",
+      "query": "查询"
     }
   },
   "editor": {
@@ -94,7 +113,10 @@
       "createFailed": "无法创建缺失页面。",
       "emptyDraftError": "模型返回了空白草稿。"
     },
-    "frontmatter": { "origin": "来源", "more": "更多" },
+    "frontmatter": {
+      "origin": "来源",
+      "more": "更多"
+    },
     "rawMarkdownEditor": "Markdown 源码编辑器"
   },
   "research": {
@@ -533,7 +555,7 @@
           "activeDefault": "使用当前活跃模型",
           "hint": "可为交互聊天和文档摄取分别选择模型；未指定时继续使用当前活跃模型。"
         },
-      "projectOverride": {
+        "projectOverride": {
           "enabled": "为当前项目使用独立模型",
           "provider": "项目 Provider",
           "selectProvider": "选择 Provider",
@@ -619,7 +641,6 @@
           "max": "最大",
           "custom": "自定义",
           "budgetTokens": "thinking token 预算",
-
           "hint": "控制聊天时的推理强度；文档摄取使用下方的独立设置。",
           "ingestTitle": "导入时的推理",
           "ingestHint": "通常应关闭：导入需要结构化输出，推理只会增加耗时而无助于质量。仅当模型拒绝在关闭推理的情况下运行时才调高。"
@@ -832,15 +853,15 @@
         "openHealthHint": "/health 始终无需鉴权。其他接口遵循下方的访问模式，但 Agent 对话、取消、单页向量化和 Source 文件写操作始终需要 token。",
         "allowUnauthenticated": "允许无 token 访问",
         "allowUnauthenticatedHint": "仅用于可信的本地智能体。启用后，这台机器上的任何进程或浏览器页面都可以调用 API。",
-        "allowLanAccess": "允许 API 和 Clip server 局域网访问",
-        "allowLanAccessHint": "重启应用后，API 和 Clip server 会监听 0.0.0.0，而不是 127.0.0.1。仅在可信网络中使用，除非完全信任局域网，否则请保留 token 鉴权。",
+        "allowLanAccess": "允许 API、Clip server 和 HTTP MCP 局域网访问",
+        "allowLanAccessHint": "API、Clip server 和 HTTP MCP 共用此局域网开关。HTTP MCP 保存设置后立即重载；API 和 Clip 的监听地址在重启应用后生效。",
         "mcpEnable": "启用 MCP 访问",
-        "mcpEnableHint": "MCP 复用本地 API 和同一套 token 规则。保持 HTTP API 启用后，将 MCP 客户端连接到内置 Node 服务即可。",
+        "mcpEnableHint": "启用 MCP 访问后，LLM Wiki 会自动启动内置 HTTP MCP 服务，默认端口 19898，无需再手动启动脚本。",
         "mcpUsage": "MCP 使用说明",
-        "mcpUsageHint": "先执行一次 `npm run mcp:build`，然后让 MCP 客户端运行下面的服务配置。MCP 提供项目、检索、对话、资料源新增/更新/删除、重新扫描和图谱等工具；资料源写入/删除始终需要 LLM_WIKI_API_TOKEN。",
+        "mcpUsageHint": "HTTP MCP 会自动启动。下方 stdio 配置仅保留给需要子进程方式连接 MCP 的客户端。",
         "mcpPathUnavailable": "没有找到 MCP 服务入口。请在 LLM Wiki 仓库中先执行 `npm run mcp:build`，然后重新打开设置。",
-        "mcpHttpTitle": "HTTP MCP（Streamable HTTP）",
-        "mcpHttpHint": "本机客户端使用 127.0.0.1；需要局域网访问时监听 0.0.0.0。GET /health 会返回检测到的局域网 MCP 地址。向局域网开放 MCP 前建议设置 LLM_WIKI_MCP_AUTH_TOKEN。",
+        "mcpHttpTitle": "HTTP MCP（自动启动）",
+        "mcpHttpHint": "随 LLM Wiki 自动启动，默认端口 19898；局域网监听与 API/Clip 共用同一开关。HTTP MCP 传输鉴权默认复用 API token，除非设置 LLM_WIKI_MCP_AUTH_TOKEN。",
         "token": "访问令牌",
         "tokenHint": "通过 `Authorization: Bearer <token>` 或 `X-LLM-Wiki-Token: <token>` 发送。启用无认证访问后，读取类接口可以省略 token，但 Agent 对话、取消、单页向量化和 Source 文件写操作始终需要 token。环境变量 LLM_WIKI_API_TOKEN 优先生效。",
         "tokenPlaceholder": "粘贴已有 token，或点击生成",
@@ -881,7 +902,11 @@
         "endpointRescanNote": "使用你的资料文件夹监控配置触发后端重新扫描。",
         "endpointEmbedPageNote": "为一个已有的 wiki/*.md 页面建立向量索引。JSON body：{ path, force? }。返回 revision 和写入的分块数量。始终需要 Token。",
         "endpointChatNote": "Agent 对话。默认返回 JSON；使用 stream: true 或 Accept: text/event-stream 可启用 SSE 流式输出。此接口始终需要 Token。",
-        "endpointChatCancelNote": "取消指定会话当前正在执行的 Agent 回合。此接口始终需要 Token。"
+        "endpointChatCancelNote": "取消指定会话当前正在执行的 Agent 回合。此接口始终需要 Token。",
+        "mcpHttpEndpoint": "MCP 地址",
+        "mcpHttpHealth": "健康检查",
+        "mcpHttpLanOn": "已允许局域网访问：HTTP MCP 监听 0.0.0.0:19898，其他设备请使用本机局域网 IP 访问。",
+        "mcpHttpLanOff": "未允许局域网访问：HTTP MCP 仅监听 127.0.0.1:19898。"
       },
       "output": {
         "title": "输出偏好",
@@ -1081,12 +1106,25 @@
     "fileSync": "文件同步",
     "rescan": "重新扫描",
     "rescanTitle": "扫描项目文件的外部变更",
-    "changeKinds": { "created": "已创建", "modified": "已修改", "deleted": "已删除" },
+    "changeKinds": {
+      "created": "已创建",
+      "modified": "已修改",
+      "deleted": "已删除"
+    },
     "fileTypes": {
-      "entity": "实体", "concept": "概念", "source": "来源", "query": "查询",
-      "synthesis": "综合", "comparison": "比较", "finding": "发现",
-      "thesis": "论点", "methodology": "方法论", "overview": "概览",
-      "index": "索引", "log": "日志", "file": "文件"
+      "entity": "实体",
+      "concept": "概念",
+      "source": "来源",
+      "query": "查询",
+      "synthesis": "综合",
+      "comparison": "比较",
+      "finding": "发现",
+      "thesis": "论点",
+      "methodology": "方法论",
+      "overview": "概览",
+      "index": "索引",
+      "log": "日志",
+      "file": "文件"
     }
   },
   "fileTree": {

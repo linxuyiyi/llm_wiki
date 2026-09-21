@@ -285,3 +285,22 @@ export async function apiServerReloadConfig(): Promise<string> {
 export async function mcpServerEntryPath(): Promise<string> {
   return invoke<string>("mcp_server_entry_path")
 }
+
+export interface McpHttpServerStatus {
+  state: string
+  host: string
+  port: number
+  mcpUrl: string
+  healthUrl: string
+  pid?: number | null
+  authConfigured: boolean
+  message?: string | null
+}
+
+export async function mcpHttpServerStatus(): Promise<McpHttpServerStatus> {
+  return invoke<McpHttpServerStatus>("mcp_http_server_status")
+}
+
+export async function mcpHttpServerReloadConfig(): Promise<McpHttpServerStatus> {
+  return invoke<McpHttpServerStatus>("mcp_http_server_reload_config")
+}
