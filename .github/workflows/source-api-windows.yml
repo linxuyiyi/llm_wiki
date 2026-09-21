@@ -119,7 +119,7 @@ jobs:
           & "mcp-server/runtime/node.exe" --version
 
       - name: Bundled HTTP MCP runtime smoke test
-        shell: powershell
+        shell: pwsh
         run: |
           $root = Join-Path $env:RUNNER_TEMP "LLM Wiki MCP Runtime Test"
           $mcp = Join-Path $root "mcp-server"
