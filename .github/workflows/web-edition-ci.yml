@@ -52,7 +52,9 @@ jobs:
 
       - name: Check Web server
         working-directory: src-tauri
-        run: cargo check --bin llm-wiki-server
+        run: |
+          cargo check --bin llm-wiki-server
+          cargo test headless_background_changes_are_replayed_once_to_web_client --lib
 
 
   server-arm64:
@@ -96,21 +98,8 @@ jobs:
       - name: Build ARM64 server
         run: cargo build --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server --release
 
-      - name: Smoke test headless server
-        shell: bash
-        run: |
-          mkdir -p /tmp/llm-wiki-web-test
-          src-tauri/target/release/llm-wiki-server             --host 127.0.0.1             --port 19829             --data-dir /tmp/llm-wiki-web-test             --web-dir dist-web >/tmp/llm-wiki-server.log 2>&1 &
-          PID=$!
-          trap 'kill $PID 2>/dev/null || true' EXIT
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:19829/health >/tmp/health.json; then
-              break
-            fi
-            sleep 1
-          done
-          cat /tmp/health.json
-          grep -q '"status":"running"' /tmp/health.json
+      - name: Smoke test unified Web UI API MCP and Agent
+        run: bash .github/scripts/smoke-web-edition.sh
 
       - name: Package ARM64 Web Edition
         run: bash .github/scripts/package-web-server.sh
