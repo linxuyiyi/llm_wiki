@@ -20,6 +20,8 @@ default = ["desktop"]
 desktop = [
   "dep:tauri",
   "tauri/wry",
+  "tauri/compression",
+  "tauri/common-controls-v6",
   "tauri/protocol-asset",
   "tauri/tray-icon",
   "dep:tauri-plugin-opener",
