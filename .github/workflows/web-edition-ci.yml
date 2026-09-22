@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: web-edition-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web-edition:
     runs-on: ubuntu-22.04
