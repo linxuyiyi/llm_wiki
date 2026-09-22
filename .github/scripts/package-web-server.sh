@@ -3,7 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="$(node -p "require('$ROOT/package.json').version")"
-ARCH="$(uname -m)"
+ARCH="${LLM_WIKI_RELEASE_ARCH:-$(uname -m)}"
+case "$ARCH" in
+  arm64) ARCH="aarch64" ;;
+esac
+SERVER_BIN="${LLM_WIKI_SERVER_BIN:-$ROOT/src-tauri/target/release/llm-wiki-server}"
 OUT_DIR="$ROOT/dist-web-server"
 PKG_NAME="llm-wiki-web-${VERSION}-linux-${ARCH}"
 STAGE="$OUT_DIR/$PKG_NAME"
@@ -11,7 +15,12 @@ STAGE="$OUT_DIR/$PKG_NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" "$STAGE/web" "$STAGE/gateway"
 
-cp "$ROOT/src-tauri/target/release/llm-wiki-server" "$STAGE/bin/"
+if [ ! -x "$SERVER_BIN" ]; then
+  echo "llm-wiki-server is missing or not executable: $SERVER_BIN" >&2
+  exit 1
+fi
+
+cp "$SERVER_BIN" "$STAGE/bin/"
 cp -R "$ROOT/dist-web/." "$STAGE/web/"
 cp -R "$ROOT/mcp-server/dist" "$STAGE/gateway/"
 cp "$ROOT/mcp-server/package.json" "$ROOT/mcp-server/package-lock.json" "$STAGE/gateway/"
@@ -30,6 +39,7 @@ LLM Wiki Web Edition $VERSION
 
 Requirements:
 - Linux $ARCH
+- glibc >= 2.28 (release compatibility baseline: GLIBC_2.28)
 - Node.js >= 20
 
 Start:
