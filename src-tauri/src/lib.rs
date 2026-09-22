@@ -9,6 +9,7 @@ mod proxy;
 mod server_bind;
 mod tray;
 mod types;
+pub mod web_server;
 
 use panic_guard::run_guarded;
 use serde::{Deserialize, Serialize};
