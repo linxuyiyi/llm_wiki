@@ -19,6 +19,12 @@ export interface McpLaunchOptions {
   http: McpHttpOptions
 }
 
+export type McpHttpFallbackHandler = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+) => boolean | Promise<boolean>
+
 interface HttpSession {
   transport: StreamableHTTPServerTransport
   server: McpServer
@@ -71,6 +77,7 @@ export function parseMcpLaunchOptions(
 export async function startHttpMcpServer(
   createMcpServer: () => McpServer,
   options: McpHttpOptions,
+  fallbackHandler?: McpHttpFallbackHandler,
 ): Promise<void> {
   const sessions = new Map<string, HttpSession>()
   const lanAddresses = options.host === "0.0.0.0" ? getLanIpv4Addresses() : []
@@ -89,6 +96,7 @@ export async function startHttpMcpServer(
         return
       }
       if (requestUrl.pathname !== options.path) {
+        if (fallbackHandler && await fallbackHandler(req, res, requestUrl)) return
         writeJson(res, 404, { error: "Not found" })
         return
       }
