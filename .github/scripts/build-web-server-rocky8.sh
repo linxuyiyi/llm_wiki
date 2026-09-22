@@ -88,7 +88,7 @@ cargo build \
 
 SERVER_BIN="$CARGO_TARGET_DIR/release/llm-wiki-server"
 file "$SERVER_BIN"
-"$ROOT/.github/scripts/verify-glibc-baseline.sh" "$SERVER_BIN"
+bash "$ROOT/.github/scripts/verify-glibc-baseline.sh" "$SERVER_BIN"
 
 export LLM_WIKI_SERVER_BIN="$SERVER_BIN"
 export LLM_WIKI_RELEASE_ARCH="aarch64"
