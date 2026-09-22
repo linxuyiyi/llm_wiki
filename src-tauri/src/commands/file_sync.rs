@@ -1608,6 +1608,46 @@ mod tests {
     }
 
     #[test]
+    fn headless_background_changes_are_replayed_once_to_web_client() {
+        let root = temp_root("web-offline-replay");
+        let rel = "raw/sources/offline.md";
+        fs::write(root.join(rel), "v1").unwrap();
+
+        startup_rescan_project_files_headless(
+            "p1".to_string(),
+            root.to_string_lossy().into_owned(),
+            Some(default_watch_config()),
+        )
+        .unwrap();
+
+        fs::write(root.join(rel), "v2").unwrap();
+        background_rescan_project_files_headless(
+            "p1".to_string(),
+            root.to_string_lossy().into_owned(),
+            Some(default_watch_config()),
+        )
+        .unwrap();
+
+        let replayed = rescan_project_files_headless_for_client(
+            "p1".to_string(),
+            root.to_string_lossy().into_owned(),
+            Some(default_watch_config()),
+        )
+        .unwrap();
+        assert!(replayed.changed_tasks.iter().any(|task| task.path == rel));
+
+        let second = rescan_project_files_headless_for_client(
+            "p1".to_string(),
+            root.to_string_lossy().into_owned(),
+            Some(default_watch_config()),
+        )
+        .unwrap();
+        assert!(!second.changed_tasks.iter().any(|task| task.path == rel));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn repeated_changes_upsert_one_pending_task() {
         let root = temp_root("dedupe");
         let rel = "raw/sources/a.md";
