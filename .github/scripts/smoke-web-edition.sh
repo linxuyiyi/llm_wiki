@@ -6,6 +6,12 @@ DATA_DIR="${LLM_WIKI_SMOKE_DATA_DIR:-/tmp/llm-wiki-web-test}"
 BACKEND_PORT="${LLM_WIKI_SMOKE_BACKEND_PORT:-19829}"
 WEB_PORT="${LLM_WIKI_SMOKE_WEB_PORT:-8080}"
 FAKE_LLM_PORT=19000
+SERVER_BIN="${LLM_WIKI_SERVER_BIN:-$ROOT/src-tauri/target/release/llm-wiki-server}"
+
+if [ ! -x "$SERVER_BIN" ]; then
+  echo "llm-wiki-server is missing or not executable: $SERVER_BIN" >&2
+  exit 1
+fi
 
 rm -rf "$DATA_DIR"
 mkdir -p "$DATA_DIR/projects"
@@ -13,7 +19,7 @@ mkdir -p "$DATA_DIR/projects"
 python3 "$ROOT/.github/scripts/fake-openai-server.py" >/tmp/llm-wiki-fake-llm.log 2>&1 &
 FAKE_PID=$!
 
-"$ROOT/src-tauri/target/release/llm-wiki-server" \
+"$SERVER_BIN" \
   --host 127.0.0.1 \
   --port "$BACKEND_PORT" \
   --data-dir "$DATA_DIR" \
