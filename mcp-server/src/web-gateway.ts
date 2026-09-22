@@ -45,7 +45,7 @@ function parseOptions(argv = process.argv.slice(2), env = process.env): GatewayO
   }
 
   const here = resolve(fileURLToPath(new URL("..", import.meta.url)))
-  const defaultWebDir = resolve(here, "../../../dist-web")
+  const defaultWebDir = resolve(here, "../../dist-web")
   const webDir = resolve(valueArg(argv, "--web-dir") ?? env.LLM_WIKI_WEB_DIR ?? defaultWebDir)
   const authToken = (env.LLM_WIKI_MCP_AUTH_TOKEN ?? "").trim() || undefined
 
