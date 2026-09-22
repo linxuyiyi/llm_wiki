@@ -53,63 +53,50 @@ jobs:
       - name: Check Web server
         working-directory: src-tauri
         run: |
-          cargo check --bin llm-wiki-server
-          cargo test headless_background_changes_are_replayed_once_to_web_client --lib
+          cargo check --bin llm-wiki-server --no-default-features --features server
+          cargo test headless_background_changes_are_replayed_once_to_web_client --lib --no-default-features --features server
 
 
   server-arm64:
     runs-on: ubuntu-22.04-arm
-    env:
-      CARGO_HTTP_MULTIPLEXING: "false"
-      CARGO_NET_RETRY: "5"
-      CARGO_HTTP_TIMEOUT: "60"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux dependencies
+      - name: Verify native ARM64 Docker host
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler
+          test "$(uname -m)" = "aarch64"
+          docker version
+          docker run --rm --platform linux/arm64 rockylinux:8 sh -c '
+            test "$(uname -m)" = "aarch64"
+            test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+            echo "Rocky Linux ARM64 baseline: $(getconf GNU_LIBC_VERSION)"
+          '
 
-      - name: Use ARM64 PDFium
+      - name: Build and validate on GLIBC 2.28 ARM64
         run: |
-          cp src-tauri/pdfium/libpdfium-arm64.so src-tauri/pdfium/libpdfium.so
-          file src-tauri/pdfium/libpdfium.so
+          docker run --rm \
+            --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            -e HOME=/tmp/llm-wiki-build-home \
+            rockylinux:8 \
+            bash .github/scripts/build-web-server-rocky8.sh
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install frontend dependencies
-        run: npm install
-
-      - name: Build Web UI and gateway
+      - name: Re-check published binary GLIBC baseline
         run: |
-          npm run build:web
-          npm --prefix mcp-server ci
-          npm run mcp:build
+          tar -xzf dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz -C /tmp
+          BIN=/tmp/llm-wiki-web-0.6.11-linux-aarch64/bin/llm-wiki-server
+          file "$BIN"
+          bash .github/scripts/verify-glibc-baseline.sh "$BIN"
 
-      - name: Build ARM64 server
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server --release
-
-      - name: Smoke test unified Web UI API MCP and Agent
-        run: bash .github/scripts/smoke-web-edition.sh
-
-      - name: Package ARM64 Web Edition
-        run: bash .github/scripts/package-web-server.sh
-
-      - name: Upload ARM64 package
+      - name: Upload GLIBC 2.28 ARM64 package
         uses: actions/upload-artifact@v4
         with:
-          name: llm-wiki-web-linux-arm64
+          name: llm-wiki-web-linux-aarch64-glibc228
           path: |
-            dist-web-server/*.tar.gz
-            dist-web-server/*.sha256
+            dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz
+            dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
