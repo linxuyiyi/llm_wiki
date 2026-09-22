@@ -17,8 +17,11 @@
     "tauri": "tauri",
     "dev:web": "vite --config vite.web.config.ts",
     "build:web": "npm run typecheck && vite build --config vite.web.config.ts",
-    "server:dev": "cargo run --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server -- --host 127.0.0.1 --port 8080 --web-dir dist-web",
-    "build:server": "cargo build --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server --release"
+    "server:dev": "node scripts/start_llm_wiki_web.mjs",
+    "build:server": "cargo build --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server --release",
+    "server:backend:dev": "cargo run --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server -- --host 127.0.0.1 --port 19829 --web-dir dist-web",
+    "server:gateway": "node mcp-server/dist/src/web-gateway.js --host 0.0.0.0 --port 8080 --backend http://127.0.0.1:19829 --web-dir dist-web",
+    "build:web-server": "npm run build:web && npm --prefix mcp-server ci && npm run mcp:build && npm run build:server"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
