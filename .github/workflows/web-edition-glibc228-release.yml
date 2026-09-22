@@ -1,0 +1,71 @@
+name: Web Edition GLIBC 2.28 ARM64 Release
+
+on:
+  push:
+    branches:
+      - feature/web-edition
+    paths:
+      - ".github/workflows/web-edition-glibc228-release.yml"
+      - ".github/scripts/**"
+      - "deploy/llm-wiki-web/**"
+      - "src-tauri/**"
+      - "src/**"
+      - "mcp-server/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-arm64-glibc228:
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify native ARM64 Docker host and GLIBC 2.28 image
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          docker version
+          docker run --rm --platform linux/arm64 rockylinux:8 sh -c '
+            test "$(uname -m)" = "aarch64"
+            test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+            echo "Release build baseline: $(uname -m) / $(getconf GNU_LIBC_VERSION)"
+          '
+
+      - name: Build test and package inside Rocky Linux 8 ARM64
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            -e HOME=/tmp/llm-wiki-build-home \
+            rockylinux:8 \
+            bash .github/scripts/build-web-server-rocky8.sh
+
+      - name: Verify packaged ELF compatibility again
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/llm-wiki-release-check
+          mkdir -p /tmp/llm-wiki-release-check
+          tar -xzf dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz \
+            -C /tmp/llm-wiki-release-check
+          BIN=/tmp/llm-wiki-release-check/llm-wiki-web-0.6.11-linux-aarch64/bin/llm-wiki-server
+          file "$BIN"
+          bash .github/scripts/verify-glibc-baseline.sh "$BIN"
+          sha256sum -c dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz.sha256
+
+      - name: Upload production ARM64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-wiki-web-0.6.11-linux-aarch64-glibc228
+          path: |
+            dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz
+            dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
