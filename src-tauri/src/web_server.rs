@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -13,7 +14,7 @@ use serde_json::{json, Map, Value};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tokio::runtime::{Builder, Runtime};
 
-use crate::commands;
+use crate::{agent, commands};
 
 const MAX_JSON_BODY: usize = 160 * 1024 * 1024;
 const MAX_PROXY_BODY: usize = 128 * 1024 * 1024;
@@ -36,6 +37,8 @@ struct WebState {
     store_lock: Arc<Mutex<()>>,
     runtime: Arc<Runtime>,
     http: Client,
+    agent_sessions: Arc<agent::session::AgentSessionStore>,
+    agent_cancellations: agent::cancel::AgentCancellationRegistry,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +66,30 @@ struct UploadRequest {
     name: String,
     relative_path: String,
     content_base64: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WebAgentTurnRequest {
+    #[serde(default = "default_current_project")]
+    project_id: String,
+    #[serde(default)]
+    llm_config: Option<agent::provider::LlmConfig>,
+    request: agent::types::AgentChatRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WebAgentCancelRequest {
+    #[serde(default = "default_current_project")]
+    project_id: String,
+    session_id: String,
+    #[serde(default)]
+    run_id: Option<String>,
+}
+
+fn default_current_project() -> String {
+    "current".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +133,8 @@ pub fn run(config: WebServerConfig) -> Result<(), String> {
         web_dir: Arc::new(config.web_dir),
         store_lock: Arc::new(Mutex::new(())),
         runtime: Arc::new(runtime),
+        agent_sessions: Arc::new(agent::session::AgentSessionStore::default()),
+        agent_cancellations: agent::cancel::AgentCancellationRegistry::default(),
         http: Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
@@ -185,6 +214,29 @@ fn handle_request(mut request: Request, state: &WebState) -> Result<(), String> 
         };
     }
 
+    if path == "/api/web/agent/turn" && method == Method::Post {
+        let body: WebAgentTurnRequest = read_json(&mut request, MAX_JSON_BODY)?;
+        let result = run_agent_turn(state, body, false);
+        return match result {
+            Ok(result) => respond_json(request, 200, json!({ "ok": true, "result": result })),
+            Err(err) => respond_json(request, 502, json!({ "ok": false, "error": err })),
+        };
+    }
+
+    if path == "/api/web/agent/stream" && method == Method::Post {
+        let body: WebAgentTurnRequest = read_json(&mut request, MAX_JSON_BODY)?;
+        return respond_agent_stream(request, state, body, false);
+    }
+
+    if path == "/api/web/agent/cancel" && method == Method::Post {
+        let body: WebAgentCancelRequest = read_json(&mut request, MAX_JSON_BODY)?;
+        let result = cancel_agent_turn(state, body);
+        return match result {
+            Ok(result) => respond_json(request, 200, json!({ "ok": true, "result": result })),
+            Err(err) => respond_json(request, 400, json!({ "ok": false, "error": err })),
+        };
+    }
+
     if path == "/api/web/store" && method == Method::Post {
         let body: StoreRequest = read_json(&mut request, MAX_JSON_BODY)?;
         let result = handle_store(state, body);
@@ -231,6 +283,11 @@ fn handle_request(mut request: Request, state: &WebState) -> Result<(), String> 
 
 fn invoke_command(state: &WebState, command: &str, args: &Value) -> Result<Value, String> {
     match command {
+        "agent_list_skills" => {
+            let project_path = required_string(args, "projectPath")?;
+            ensure_allowed(state, &project_path)?;
+            to_value(agent::skills::agent_list_skills(project_path))
+        }
         "read_file" => {
             let path = required_string(args, "path")?;
             ensure_allowed(state, &path)?;
