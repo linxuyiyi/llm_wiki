@@ -1,0 +1,51 @@
+name: Web Edition CI
+
+on:
+  push:
+    branches:
+      - feature/web-edition
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web-edition:
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_NET_RETRY: "5"
+      CARGO_HTTP_TIMEOUT: "60"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Web UI
+        run: npm run build:web
+
+      - name: Build MCP server
+        run: |
+          npm --prefix mcp-server ci
+          npm run mcp:build
+          npm run mcp:test
+
+      - name: Check Web server
+        working-directory: src-tauri
+        run: cargo check --bin llm-wiki-server
