@@ -1,5 +1,8 @@
+#[cfg(feature = "desktop")]
 pub mod claude_cli;
+#[cfg(feature = "desktop")]
 mod cli_resolver;
+#[cfg(feature = "desktop")]
 pub mod codex_cli;
 pub mod ebook;
 pub mod external_search;
