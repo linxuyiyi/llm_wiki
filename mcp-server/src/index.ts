@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+import { resolve } from "node:path"
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
@@ -591,11 +593,7 @@ async function main(): Promise<void> {
 function isMainModule(): boolean {
   const entry = process.argv[1]
   if (!entry) return false
-  try {
-    return new URL(import.meta.url).pathname === new URL(`file://${entry}`).pathname
-  } catch {
-    return import.meta.url.endsWith(entry.replace(/\\/g, "/"))
-  }
+  return resolve(entry) === fileURLToPath(import.meta.url)
 }
 
 if (isMainModule()) {
