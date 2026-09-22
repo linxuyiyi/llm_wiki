@@ -11,6 +11,7 @@ use std::time::Duration;
 use md5::{Digest, Md5};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "desktop")]
 use tauri::{AppHandle, Emitter, State};
 use walkdir::WalkDir;
 
@@ -33,11 +34,13 @@ static QUEUE_LOCKS: OnceLock<Mutex<BTreeMap<String, Arc<Mutex<()>>>>> = OnceLock
 static APP_WRITE_IGNORES: OnceLock<Mutex<BTreeMap<String, i64>>> = OnceLock::new();
 static WATCHER_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(feature = "desktop")]
 #[derive(Default)]
 pub struct FileSyncState {
     inner: Mutex<FileSyncInner>,
 }
 
+#[cfg(feature = "desktop")]
 #[derive(Default)]
 struct FileSyncInner {
     watcher: Option<RecommendedWatcher>,
@@ -180,6 +183,7 @@ fn normalize_source_watch_config(config: Option<SourceWatchConfig>) -> SourceWat
     config
 }
 
+#[cfg(feature = "desktop")]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FileSyncPayload {
@@ -187,7 +191,8 @@ struct FileSyncPayload {
     tasks: Vec<FileChangeTask>,
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
+#[cfg(feature = "desktop")]
 pub fn start_project_file_watcher(
     app: AppHandle,
     state: State<FileSyncState>,
@@ -315,7 +320,8 @@ pub fn start_project_file_watcher(
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
+#[cfg(feature = "desktop")]
 pub fn stop_project_file_watcher(state: State<FileSyncState>) -> Result<(), String> {
     run_guarded("stop_project_file_watcher", || {
         WATCHER_GENERATION.fetch_add(1, Ordering::SeqCst);
@@ -327,7 +333,8 @@ pub fn stop_project_file_watcher(state: State<FileSyncState>) -> Result<(), Stri
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
+#[cfg(feature = "desktop")]
 pub fn rescan_project_files(
     app: AppHandle,
     project_id: String,
@@ -506,7 +513,7 @@ pub fn startup_rescan_project_files_headless_for_client(
     Ok(result)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
     run_guarded("get_file_change_queue", || {
         let root = PathBuf::from(project_path);
@@ -514,7 +521,8 @@ pub fn get_file_change_queue(project_path: String) -> Result<FileChangeQueue, St
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
+#[cfg(feature = "desktop")]
 pub fn retry_file_change_task(
     app: AppHandle,
     project_id: String,
@@ -544,7 +552,8 @@ pub fn retry_file_change_task(
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
+#[cfg(feature = "desktop")]
 pub fn ignore_file_change_task(
     app: AppHandle,
     project_id: String,
@@ -577,6 +586,7 @@ pub fn mark_app_write_path(path: &Path) {
     ignores.insert(key, now + APP_WRITE_IGNORE_MS);
 }
 
+#[cfg(feature = "desktop")]
 fn handle_changed_paths(
     app: &AppHandle,
     root: &Path,
@@ -638,6 +648,7 @@ fn handle_changed_paths(
     Ok(())
 }
 
+#[cfg(feature = "desktop")]
 fn maybe_periodic_rescan(
     app: &AppHandle,
     root: &Path,
@@ -666,6 +677,7 @@ fn maybe_periodic_rescan(
     }
 }
 
+#[cfg(feature = "desktop")]
 fn rescan_watch_roots(
     app: &AppHandle,
     root: &Path,
@@ -964,6 +976,7 @@ fn upsert_task(
     });
 }
 
+#[cfg(feature = "desktop")]
 fn process_queue(
     app: &AppHandle,
     root: &Path,
@@ -1381,6 +1394,7 @@ fn merge_kind(existing: &FileChangeKind, incoming: &FileChangeKind) -> FileChang
     }
 }
 
+#[cfg(feature = "desktop")]
 fn emit_queue(app: &AppHandle, project_id: &str, queue: &FileChangeQueue) {
     let payload = FileSyncPayload {
         project_id: project_id.to_string(),
@@ -1389,6 +1403,7 @@ fn emit_queue(app: &AppHandle, project_id: &str, queue: &FileChangeQueue) {
     let _ = app.emit(EVENT_QUEUE_UPDATED, payload);
 }
 
+#[cfg(feature = "desktop")]
 fn emit_changed_batch(app: &AppHandle, project_id: &str, tasks: Vec<FileChangeTask>) {
     if tasks.is_empty() {
         return;
