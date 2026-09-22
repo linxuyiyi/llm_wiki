@@ -10,7 +10,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::panic_guard::run_guarded;
 use crate::types::wiki::WikiProject;
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn create_project(name: String, path: String) -> Result<WikiProject, String> {
     run_guarded("create_project", || create_project_impl(name, path))
 }
@@ -243,7 +243,7 @@ related: []
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn open_project(path: String) -> Result<WikiProject, String> {
     run_guarded("open_project", || {
         let root = Path::new(&path);
@@ -266,7 +266,7 @@ pub fn open_project(path: String) -> Result<WikiProject, String> {
 }
 
 #[cfg(feature = "desktop")]
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn open_project_folder(app: AppHandle, path: String) -> Result<(), String> {
     run_guarded("open_project_folder", || {
         let root = Path::new(&path);
@@ -293,7 +293,7 @@ pub fn open_project_folder(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 #[cfg(feature = "desktop")]
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn open_path_in_project(
     app: AppHandle,
     project_path: String,
