@@ -94,6 +94,7 @@ export LLM_WIKI_RELEASE_ARCH="aarch64"
 
 bash "$ROOT/.github/scripts/smoke-web-edition.sh"
 bash "$ROOT/.github/scripts/package-web-server.sh"
+bash "$ROOT/.github/scripts/smoke-packaged-web-release.sh"
 
 EXPECTED_TARBALL="$ROOT/dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz"
 if [ ! -f "$EXPECTED_TARBALL" ]; then
