@@ -35,7 +35,12 @@ export const fetch: typeof globalThis.fetch = async (input, init) => {
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok || !payload?.ok) throw new TypeError(payload?.error || "Failed to fetch")
-  return new Response(base64ToBytes(payload.result.bodyBase64 || ""), {
+  const responseBytes = base64ToBytes(payload.result.bodyBase64 || "")
+  const responseBody = responseBytes.buffer.slice(
+    responseBytes.byteOffset,
+    responseBytes.byteOffset + responseBytes.byteLength,
+  ) as ArrayBuffer
+  return new Response(responseBody, {
     status: payload.result.status,
     statusText: payload.result.statusText || "",
     headers: payload.result.headers || {},
