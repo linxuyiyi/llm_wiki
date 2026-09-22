@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: web-edition-${{ github.ref }}
+  group: web-edition-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
