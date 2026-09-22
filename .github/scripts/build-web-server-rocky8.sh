@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+mkdir -p "$HOME"
 
 EXPECTED_GLIBC="glibc 2.28"
 ACTUAL_GLIBC="$(getconf GNU_LIBC_VERSION)"
