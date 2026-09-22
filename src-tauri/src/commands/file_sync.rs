@@ -348,6 +348,53 @@ pub fn rescan_project_files(
     })
 }
 
+/// Headless/server equivalent of `rescan_project_files`.
+///
+/// It reuses the same persisted snapshot/queue engine but deliberately has no
+/// Tauri AppHandle/event dependency, so Linux server mode can detect changes
+/// even when no browser is connected.
+pub fn rescan_project_files_headless(
+    project_id: String,
+    project_path: String,
+    source_watch_config: Option<SourceWatchConfig>,
+) -> Result<FileChangeRescanResult, String> {
+    run_guarded("rescan_project_files_headless", || {
+        let root = PathBuf::from(project_path);
+        let source_watch_config = normalize_source_watch_config(source_watch_config);
+        ensure_sync_dir(&root)?;
+        enqueue_rescan_changes(&root, &project_id, &source_watch_config)?;
+        let changed_tasks = process_queue_inner(&root, &project_id, |_| {}, |_| {})?;
+        let queue = with_queue_lock(&root, || read_queue(&root))?;
+        Ok(FileChangeRescanResult {
+            queue,
+            changed_tasks,
+        })
+    })
+}
+
+/// Server-side startup scan. This intentionally uses the same narrow watch
+/// roots as the desktop watcher startup instead of walking unrelated project
+/// content.
+pub fn startup_rescan_project_files_headless(
+    project_id: String,
+    project_path: String,
+    source_watch_config: Option<SourceWatchConfig>,
+) -> Result<FileChangeRescanResult, String> {
+    run_guarded("startup_rescan_project_files_headless", || {
+        let root = PathBuf::from(project_path);
+        let source_watch_config = normalize_source_watch_config(source_watch_config);
+        ensure_sync_dir(&root)?;
+        with_queue_lock(&root, || reset_processing_tasks(&root, &project_id))?;
+        enqueue_startup_rescan_changes(&root, &project_id, &source_watch_config)?;
+        let changed_tasks = process_queue_inner(&root, &project_id, |_| {}, |_| {})?;
+        let queue = with_queue_lock(&root, || read_queue(&root))?;
+        Ok(FileChangeRescanResult {
+            queue,
+            changed_tasks,
+        })
+    })
+}
+
 #[tauri::command]
 pub fn get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
     run_guarded("get_file_change_queue", || {
