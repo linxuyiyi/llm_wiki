@@ -55,6 +55,7 @@ jobs:
         run: |
           cargo check --bin llm-wiki-server --no-default-features --features server
           cargo test headless_background_changes_are_replayed_once_to_web_client --lib --no-default-features --features server
+          cargo check --lib
 
 
   server-arm64:
