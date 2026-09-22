@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tokio::runtime::{Builder, Runtime};
+use uuid::Uuid;
 
 use crate::{agent, commands};
 
@@ -605,6 +606,439 @@ fn invoke_command(state: &WebState, command: &str, args: &Value) -> Result<Value
         "set_proxy_env" => to_value("proxy settings saved; web requests use the server proxy"),
         other => Err(format!("Web runtime command is not implemented yet: {other}")),
     }
+}
+
+
+#[derive(Debug, Clone)]
+struct WebProject {
+    id: String,
+    path: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct WebAgentRuntimeConfig {
+    embedding: Option<commands::search::SearchEmbeddingConfig>,
+    llm: Option<agent::provider::LlmConfig>,
+    web_search: Option<agent::tools::WebSearchConfig>,
+    anytxt: Option<agent::tools::AnyTxtConfig>,
+}
+
+fn web_project(state: &WebState, requested: &str) -> Result<WebProject, String> {
+    let value = resolve_api_project(state, requested)?;
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Project id is missing".to_string())?
+        .to_string();
+    let path = value
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Project path is missing".to_string())?
+        .to_string();
+    ensure_allowed(state, &path)?;
+    Ok(WebProject { id, path })
+}
+
+fn project_llm_config_web(parsed: &Value, project_id: &str) -> Option<agent::provider::LlmConfig> {
+    let global = parsed.get("llmConfig").cloned();
+    let Some(project) = parsed
+        .get("projectLlmOverrides")
+        .and_then(|value| value.get(project_id))
+    else {
+        return global.and_then(|value| serde_json::from_value(value).ok());
+    };
+    if project.get("enabled").and_then(Value::as_bool) != Some(true) {
+        return global.and_then(|value| serde_json::from_value(value).ok());
+    }
+
+    let mut profile = project.get("profile")?.clone();
+    let profile_object = profile.as_object_mut()?;
+    let preset_id = project.get("presetId").and_then(Value::as_str)?;
+    let provider = parsed
+        .get("providerConfigs")
+        .and_then(|value| value.get(preset_id))
+        .and_then(Value::as_object);
+
+    let custom_preset_exists = parsed
+        .get("customLlmPresets")
+        .and_then(Value::as_array)
+        .map(|presets| {
+            presets
+                .iter()
+                .any(|preset| preset.get("id").and_then(Value::as_str) == Some(preset_id))
+        })
+        .unwrap_or(false);
+    if preset_id.starts_with("custom-") && !custom_preset_exists {
+        return global.and_then(|value| serde_json::from_value(value).ok());
+    }
+
+    if let Some(provider) = provider {
+        for key in [
+            "apiKey",
+            "apiMode",
+            "azureApiVersion",
+            "azureModelFamily",
+            "maxContextSize",
+            "maxTokens",
+            "reasoning",
+            "streamingEnabled",
+            "customHeaders",
+        ] {
+            if let Some(value) = provider.get(key) {
+                profile_object.insert(key.to_string(), value.clone());
+            }
+        }
+        if project
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            if let Some(value) = provider.get("model") {
+                profile_object.insert("model".to_string(), value.clone());
+            }
+        }
+        if let Some(value) = provider.get("baseUrl") {
+            let endpoint_key =
+                if profile_object.get("provider").and_then(Value::as_str) == Some("ollama") {
+                    "ollamaUrl"
+                } else {
+                    "customEndpoint"
+                };
+            profile_object.insert(endpoint_key.to_string(), value.clone());
+        }
+    }
+    serde_json::from_value(profile).ok()
+}
+
+fn load_web_agent_runtime_config(
+    state: &WebState,
+    project_id: &str,
+    llm_override: Option<agent::provider::LlmConfig>,
+) -> WebAgentRuntimeConfig {
+    let parsed = read_store(&state.data_dir.join("app-state.json"), &json!({}))
+        .unwrap_or_else(|_| json!({}));
+    WebAgentRuntimeConfig {
+        embedding: parsed
+            .get("embeddingConfig")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok()),
+        llm: llm_override
+            .or_else(|| project_llm_config_web(&parsed, project_id))
+            .or_else(|| {
+                parsed
+                    .get("llmConfig")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok())
+            }),
+        web_search: parsed
+            .get("searchApiConfig")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok()),
+        anytxt: parsed
+            .get("searchApiConfig")
+            .and_then(|value| value.get("anyTxt"))
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok()),
+    }
+}
+
+fn prepare_web_agent(
+    state: &WebState,
+    mut body: WebAgentTurnRequest,
+) -> Result<
+    (
+        WebProject,
+        agent::runtime::AgentRuntime,
+        agent::types::AgentChatRequest,
+        String,
+        String,
+        String,
+    ),
+    String,
+> {
+    let project = web_project(state, &body.project_id)?;
+    if body.request.message.trim().is_empty() {
+        return Err("message is required".to_string());
+    }
+
+    if body
+        .request
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        body.request.session_id = Some(format!("web_{}", Uuid::new_v4()));
+    }
+    if body
+        .request
+        .run_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .is_empty()
+    {
+        body.request.run_id = Some(format!("run_{}", Uuid::new_v4()));
+    }
+
+    let session_id = body.request.session_id.clone().unwrap_or_default();
+    let run_id = body.request.run_id.clone().unwrap_or_default();
+    if body.request.history.is_empty() && !body.request.history_explicit {
+        body.request.history = state
+            .agent_sessions
+            .recent_messages(&project.path, &session_id, 12)
+            .into_iter()
+            .map(|message| agent::types::AgentConversationMessage {
+                role: message.role,
+                content: message.content,
+            })
+            .collect();
+    }
+
+    let runtime_config =
+        load_web_agent_runtime_config(state, &project.id, body.llm_config.take());
+    let runtime = agent::runtime::AgentRuntime::new(
+        project.id.clone(),
+        project.path.clone(),
+        runtime_config.embedding,
+        runtime_config.llm,
+        runtime_config.web_search,
+        runtime_config.anytxt,
+    );
+    let user_message = body.request.message.clone();
+    Ok((
+        project,
+        runtime,
+        body.request,
+        user_message,
+        session_id,
+        run_id,
+    ))
+}
+
+fn web_agent_response(response: &agent::types::AgentChatResponse) -> Value {
+    json!({
+        "sessionId": response.session_id,
+        "mode": response.mode,
+        "message": response.message,
+        "references": response.references,
+        "toolEvents": response.tool_events,
+        "userInputRequest": response.user_input_request,
+        "usage": response.usage,
+    })
+}
+
+fn public_agent_response(response: &agent::types::AgentChatResponse) -> Value {
+    let mut events = response.events.clone();
+    for event in &mut events {
+        event.redact_for_external_api();
+    }
+    json!({
+        "ok": true,
+        "projectId": response.project_id,
+        "sessionId": response.session_id,
+        "mode": response.mode,
+        "message": {
+            "role": "assistant",
+            "content": response.message,
+        },
+        "references": response.references,
+        "toolEvents": response.tool_events,
+        "events": events,
+        "userInputRequest": response.user_input_request,
+        "usage": response.usage,
+    })
+}
+
+fn run_agent_turn(
+    state: &WebState,
+    body: WebAgentTurnRequest,
+    public_shape: bool,
+) -> Result<Value, String> {
+    let (project, runtime, request, user_message, session_id, run_id) =
+        prepare_web_agent(state, body)?;
+    let persist_session = request.persist_session;
+    let cancellation = state
+        .agent_cancellations
+        .start(&project.id, &session_id, &run_id);
+    let result = state
+        .runtime
+        .block_on(runtime.run_once_with_cancel(request, Some(cancellation)));
+    state
+        .agent_cancellations
+        .finish(&project.id, &session_id, &run_id);
+    let response = result?;
+    if persist_session {
+        state.agent_sessions.append_turn(
+            &project.path,
+            &project.id,
+            &response.session_id,
+            &user_message,
+            &response.message,
+        );
+    }
+    Ok(if public_shape {
+        public_agent_response(&response)
+    } else {
+        web_agent_response(&response)
+    })
+}
+
+fn cancel_agent_turn(state: &WebState, request: WebAgentCancelRequest) -> Result<Value, String> {
+    if request.session_id.trim().is_empty() {
+        return Err("sessionId is required".to_string());
+    }
+    let project = web_project(state, &request.project_id)?;
+    Ok(json!({
+        "sessionId": request.session_id,
+        "cancelled": state.agent_cancellations.cancel(
+            &project.id,
+            &request.session_id,
+            request.run_id.as_deref(),
+        ),
+    }))
+}
+
+struct WebSseReader {
+    receiver: Receiver<Vec<u8>>,
+    current: Cursor<Vec<u8>>,
+}
+
+impl WebSseReader {
+    fn new(receiver: Receiver<Vec<u8>>) -> Self {
+        Self {
+            receiver,
+            current: Cursor::new(Vec::new()),
+        }
+    }
+}
+
+impl Read for WebSseReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            let count = self.current.read(buffer)?;
+            if count > 0 {
+                return Ok(count);
+            }
+            match self.receiver.recv() {
+                Ok(chunk) => self.current = Cursor::new(chunk),
+                Err(_) => return Ok(0),
+            }
+        }
+    }
+}
+
+fn web_sse_frame(event: &str, data: &Value) -> Vec<u8> {
+    format!("event: {event}\ndata: {}\n\n", data).into_bytes()
+}
+
+fn try_send_web_sse(sender: &SyncSender<Vec<u8>>, frame: Vec<u8>) -> bool {
+    match sender.try_send(frame) {
+        Ok(()) | Err(TrySendError::Full(_)) => true,
+        Err(TrySendError::Disconnected(_)) => false,
+    }
+}
+
+fn respond_agent_stream(
+    request: Request,
+    state: &WebState,
+    body: WebAgentTurnRequest,
+    redact_events: bool,
+) -> Result<(), String> {
+    let (project, runtime, agent_request, user_message, session_id, run_id) =
+        prepare_web_agent(state, body)?;
+    let persist_session = agent_request.persist_session;
+    let cancellation = state
+        .agent_cancellations
+        .start(&project.id, &session_id, &run_id);
+    let (sender, receiver) = sync_channel::<Vec<u8>>(256);
+
+    let runtime_handle = state.runtime.clone();
+    let sessions = state.agent_sessions.clone();
+    let cancellations = state.agent_cancellations.clone();
+    let project_for_task = project.clone();
+    let session_for_task = session_id.clone();
+    let run_for_task = run_id.clone();
+    runtime_handle.spawn(async move {
+        let event_sender = sender.clone();
+        let cancel_registry = cancellations.clone();
+        let cancel_project = project_for_task.id.clone();
+        let cancel_session = session_for_task.clone();
+        let cancel_run = run_for_task.clone();
+        let sink: agent::runtime::AgentEventSink = Arc::new(move |mut event| {
+            if redact_events {
+                event.redact_for_external_api();
+            }
+            let payload = serde_json::to_value(event)
+                .unwrap_or_else(|error| json!({ "type": "error", "message": error.to_string() }));
+            if !try_send_web_sse(&event_sender, web_sse_frame("agent", &payload)) {
+                cancel_registry.cancel(&cancel_project, &cancel_session, Some(&cancel_run));
+            }
+        });
+
+        let result = runtime
+            .run_once_with_cancel_and_events(agent_request, Some(cancellation), Some(sink))
+            .await;
+        cancellations.finish(
+            &project_for_task.id,
+            &session_for_task,
+            &run_for_task,
+        );
+
+        match result {
+            Ok(response) => {
+                if persist_session {
+                    sessions.append_turn(
+                        &project_for_task.path,
+                        &project_for_task.id,
+                        &response.session_id,
+                        &user_message,
+                        &response.message,
+                    );
+                }
+                let payload = if redact_events {
+                    public_agent_response(&response)
+                } else {
+                    web_agent_response(&response)
+                };
+                let _ = sender.send(web_sse_frame("done", &payload));
+            }
+            Err(error) if error == "Agent turn cancelled" => {
+                let _ = sender.send(web_sse_frame(
+                    "cancelled",
+                    &json!({ "ok": false, "error": error }),
+                ));
+            }
+            Err(error) => {
+                let _ = sender.send(web_sse_frame(
+                    "error",
+                    &json!({ "ok": false, "error": error }),
+                ));
+            }
+        }
+    });
+
+    let mut response = Response::new(
+        StatusCode(200),
+        vec![
+            Header::from_bytes("Content-Type", "text/event-stream; charset=utf-8").unwrap(),
+            Header::from_bytes("Cache-Control", "no-cache, no-transform").unwrap(),
+            Header::from_bytes("X-Accel-Buffering", "no").unwrap(),
+        ],
+        WebSseReader::new(receiver),
+        None,
+        None,
+    );
+    add_common_headers(&mut response);
+    request.respond(response).map_err(|error| error.to_string())
 }
 
 fn handle_store(state: &WebState, request: StoreRequest) -> Result<Value, String> {
