@@ -18,6 +18,7 @@ use crate::panic_guard::run_guarded;
 
 const SNAPSHOT_FILE: &str = ".llm-wiki/file-snapshot.json";
 const QUEUE_FILE: &str = ".llm-wiki/file-change-queue.json";
+const WEB_PENDING_CHANGES_FILE: &str = ".llm-wiki/web-pending-file-changes.json";
 const EVENT_QUEUE_UPDATED: &str = "file-sync://queue-updated";
 const EVENT_CHANGED: &str = "file-sync://changed";
 const MAX_HASH_BYTES: u64 = 32 * 1024 * 1024;
@@ -393,6 +394,116 @@ pub fn startup_rescan_project_files_headless(
             changed_tasks,
         })
     })
+}
+
+
+fn read_pending_web_changes(root: &Path) -> Result<Vec<FileChangeTask>, String> {
+    read_json(root.join(WEB_PENDING_CHANGES_FILE))
+}
+
+fn write_pending_web_changes(root: &Path, tasks: &[FileChangeTask]) -> Result<(), String> {
+    write_json(root.join(WEB_PENDING_CHANGES_FILE), &tasks)
+}
+
+fn append_pending_web_changes(root: &Path, tasks: &[FileChangeTask]) -> Result<(), String> {
+    if tasks.is_empty() {
+        return Ok(());
+    }
+    with_queue_lock(root, || {
+        let mut pending = read_pending_web_changes(root)?;
+        for task in tasks {
+            if let Some(existing) = pending.iter_mut().find(|candidate| candidate.id == task.id) {
+                if task.updated_at >= existing.updated_at {
+                    *existing = task.clone();
+                }
+            } else {
+                pending.push(task.clone());
+            }
+        }
+        pending.sort_by(|a, b| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.updated_at.cmp(&b.updated_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        if pending.len() > 4096 {
+            pending.drain(0..pending.len() - 4096);
+        }
+        write_pending_web_changes(root, &pending)
+    })
+}
+
+fn take_pending_web_changes(root: &Path) -> Result<Vec<FileChangeTask>, String> {
+    with_queue_lock(root, || {
+        let pending = read_pending_web_changes(root)?;
+        if !pending.is_empty() {
+            write_pending_web_changes(root, &[])?;
+        }
+        Ok(pending)
+    })
+}
+
+fn merge_client_changed_tasks(
+    mut pending: Vec<FileChangeTask>,
+    current: Vec<FileChangeTask>,
+) -> Vec<FileChangeTask> {
+    for task in current {
+        if let Some(existing) = pending.iter_mut().find(|candidate| candidate.id == task.id) {
+            if task.updated_at >= existing.updated_at {
+                *existing = task;
+            }
+        } else {
+            pending.push(task);
+        }
+    }
+    pending.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then_with(|| a.updated_at.cmp(&b.updated_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    pending
+}
+
+/// Periodic server scan used while no browser is connected. Changes are saved
+/// separately from the snapshot so a later Web UI session can still perform
+/// lifecycle work (auto-ingest, delete cleanup, tree refresh) exactly once.
+pub fn background_rescan_project_files_headless(
+    project_id: String,
+    project_path: String,
+    source_watch_config: Option<SourceWatchConfig>,
+) -> Result<(), String> {
+    let root = PathBuf::from(&project_path);
+    let result = rescan_project_files_headless(project_id, project_path, source_watch_config)?;
+    append_pending_web_changes(&root, &result.changed_tasks)
+}
+
+/// Web-client rescan that first drains changes detected while the browser was
+/// offline, then adds changes found by the foreground rescan.
+pub fn rescan_project_files_headless_for_client(
+    project_id: String,
+    project_path: String,
+    source_watch_config: Option<SourceWatchConfig>,
+) -> Result<FileChangeRescanResult, String> {
+    let root = PathBuf::from(&project_path);
+    let pending = take_pending_web_changes(&root)?;
+    let mut result = rescan_project_files_headless(project_id, project_path, source_watch_config)?;
+    result.changed_tasks = merge_client_changed_tasks(pending, result.changed_tasks);
+    Ok(result)
+}
+
+/// Web-client startup scan with offline-change recovery.
+pub fn startup_rescan_project_files_headless_for_client(
+    project_id: String,
+    project_path: String,
+    source_watch_config: Option<SourceWatchConfig>,
+) -> Result<FileChangeRescanResult, String> {
+    let root = PathBuf::from(&project_path);
+    let pending = take_pending_web_changes(&root)?;
+    let mut result =
+        startup_rescan_project_files_headless(project_id, project_path, source_watch_config)?;
+    result.changed_tasks = merge_client_changed_tasks(pending, result.changed_tasks);
+    Ok(result)
 }
 
 #[tauri::command]
