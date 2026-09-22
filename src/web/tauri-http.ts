@@ -14,6 +14,7 @@ function base64ToBytes(value: string): Uint8Array {
 }
 
 export const fetch: typeof globalThis.fetch = async (input, init) => {
+  const pluginInit = init as (RequestInit & { danger?: { acceptInvalidCerts?: boolean } }) | undefined
   const request = input instanceof Request ? input : new Request(input, init)
   const bodyBytes = request.method === "GET" || request.method === "HEAD"
     ? null
@@ -28,6 +29,7 @@ export const fetch: typeof globalThis.fetch = async (input, init) => {
       method: request.method,
       headers,
       bodyBase64: bodyBytes ? bytesToBase64(bodyBytes) : null,
+      acceptInvalidCerts: pluginInit?.danger?.acceptInvalidCerts === true,
     }),
     signal: init?.signal,
   })
