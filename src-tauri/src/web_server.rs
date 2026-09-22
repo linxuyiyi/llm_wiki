@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
@@ -15,6 +15,7 @@ use serde_json::{json, Map, Value};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tokio::runtime::{Builder, Runtime};
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 use crate::{agent, commands};
 
@@ -1264,7 +1265,7 @@ fn handle_proxy_fetch(state: &WebState, request: ProxyFetchRequest) -> Result<Pr
 }
 
 fn handle_public_api(
-    request: Request,
+    mut request: Request,
     state: &WebState,
     method: &Method,
     path: &str,
@@ -1306,10 +1307,412 @@ fn handle_public_api(
             let target = join_project_path(project["path"].as_str().unwrap_or_default(), rel)?;
             ensure_allowed(state, &target)?;
             let content = state.runtime.block_on(commands::fs::read_file(target.clone(), Some(false)))?;
-            respond_json(request, 200, json!({ "ok": true, "path": rel, "content": content }))
+            respond_json(request, 200, json!({ "ok": true, "projectId": project["id"], "path": rel, "content": content }))
+        }
+        (&Method::Post, ["projects", project_id, "search"]) => {
+            let project = web_project(state, project_id)?;
+            let body: Value = read_json(&mut request, MAX_JSON_BODY)?;
+            let query_text = body.get("query").and_then(Value::as_str).unwrap_or("").trim().to_string();
+            if query_text.is_empty() {
+                return respond_json(request, 400, json!({ "ok": false, "error": "query is required" }));
+            }
+            let top_k = body.get("topK").and_then(Value::as_u64).map(|value| value as usize);
+            let include_content = body.get("includeContent").and_then(Value::as_bool);
+            let embedding_config = load_web_agent_runtime_config(state, &project.id, None).embedding;
+            let result = state.runtime.block_on(commands::search::search_project(
+                project.path,
+                query_text,
+                top_k,
+                include_content,
+                None,
+                embedding_config,
+            ))?;
+            respond_json(request, 200, json!({
+                "ok": true,
+                "projectId": project.id,
+                "mode": result.mode,
+                "tokenHits": result.token_hits,
+                "vectorHits": result.vector_hits,
+                "graphHits": result.graph_hits,
+                "results": result.results,
+            }))
+        }
+        (&Method::Post, ["projects", project_id, "chat"]) => {
+            let agent_request: agent::types::AgentChatRequest = read_json(&mut request, MAX_JSON_BODY)?;
+            let result = run_agent_turn(
+                state,
+                WebAgentTurnRequest {
+                    project_id: (*project_id).to_string(),
+                    llm_config: None,
+                    request: agent_request,
+                },
+                true,
+            )?;
+            respond_json(request, 200, result)
+        }
+        (&Method::Post, ["projects", project_id, "chat", session_id, "cancel"]) => {
+            let result = cancel_agent_turn(
+                state,
+                WebAgentCancelRequest {
+                    project_id: (*project_id).to_string(),
+                    session_id: (*session_id).to_string(),
+                    run_id: None,
+                },
+            )?;
+            respond_json(request, 200, json!({
+                "ok": true,
+                "sessionId": session_id,
+                "cancelled": result.get("cancelled").and_then(Value::as_bool).unwrap_or(false),
+            }))
+        }
+        (&Method::Get, ["projects", project_id, "graph"]) => {
+            let project = web_project(state, project_id)?;
+            let params = parse_query(query);
+            let q = params.get("q").map(|value| value.to_lowercase());
+            let node_type = params.get("nodeType").map(|value| value.to_lowercase());
+            let limit = params.get("limit")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(200)
+                .clamp(1, 1000);
+            let (mut nodes, edges) = build_web_graph(&project.path)?;
+            if let Some(q) = q {
+                nodes.retain(|node| {
+                    node.get("id").and_then(Value::as_str).unwrap_or("").to_lowercase().contains(&q)
+                        || node.get("label").and_then(Value::as_str).unwrap_or("").to_lowercase().contains(&q)
+                });
+            }
+            if let Some(node_type) = node_type {
+                nodes.retain(|node| {
+                    node.get("nodeType").and_then(Value::as_str).unwrap_or("") == node_type
+                });
+            }
+            nodes.truncate(limit);
+            let ids = nodes.iter()
+                .filter_map(|node| node.get("id").and_then(Value::as_str))
+                .map(ToOwned::to_owned)
+                .collect::<BTreeSet<_>>();
+            let edges = edges.into_iter().filter(|edge| {
+                let source = edge.get("source").and_then(Value::as_str).unwrap_or("");
+                let target = edge.get("target").and_then(Value::as_str).unwrap_or("");
+                ids.contains(source) && ids.contains(target)
+            }).collect::<Vec<_>>();
+            respond_json(request, 200, json!({
+                "ok": true,
+                "projectId": project.id,
+                "nodes": nodes,
+                "edges": edges,
+            }))
+        }
+        (&Method::Get, ["projects", project_id, "reviews"]) => {
+            let project = web_project(state, project_id)?;
+            let params = parse_query(query);
+            let status = params.get("status").map(String::as_str).unwrap_or("unresolved");
+            let review_type = params.get("type").map(String::as_str);
+            let limit = params.get("limit")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(200)
+                .clamp(1, 1000);
+            let reviews = load_web_reviews(&project.path, status, review_type, limit)?;
+            respond_json(request, 200, json!({
+                "ok": true,
+                "projectId": project.id,
+                "status": status,
+                "count": reviews.len(),
+                "reviews": reviews,
+            }))
+        }
+        (&Method::Put, ["projects", project_id, "sources", "file"]) => {
+            let project = web_project(state, project_id)?;
+            let body: Value = read_json(&mut request, MAX_JSON_BODY)?;
+            let path = body.get("path").and_then(Value::as_str).unwrap_or("");
+            let bytes = match (
+                body.get("content").and_then(Value::as_str),
+                body.get("contentBase64").and_then(Value::as_str),
+            ) {
+                (Some(content), None) => content.as_bytes().to_vec(),
+                (None, Some(encoded)) => B64.decode(encoded.as_bytes())
+                    .map_err(|error| format!("Invalid contentBase64: {error}"))?,
+                _ => return respond_json(request, 400, json!({
+                    "ok": false,
+                    "error": "Provide exactly one of content or contentBase64"
+                })),
+            };
+            let target = source_target_path(state, &project.path, path, true)?;
+            let existed = target.exists();
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            commands::file_sync::mark_app_write_path(&target);
+            fs::write(&target, &bytes).map_err(|error| format!("Failed to write source: {error}"))?;
+            let rescan = rescan_project_sources(state, &project)?;
+            respond_json(request, 200, json!({
+                "ok": true,
+                "projectId": project.id,
+                "path": format!("raw/sources/{}", normalize_source_rel(path)?),
+                "action": if existed { "updated" } else { "created" },
+                "size": bytes.len(),
+                "rescan": rescan,
+            }))
+        }
+        (&Method::Delete, ["projects", project_id, "sources", "file"]) => {
+            let project = web_project(state, project_id)?;
+            let params = parse_query(query);
+            let path = params.get("path").ok_or_else(|| "Missing path".to_string())?;
+            let target = source_target_path(state, &project.path, path, false)?;
+            if !target.exists() {
+                return respond_json(request, 404, json!({ "ok": false, "error": "Source file not found" }));
+            }
+            commands::file_sync::mark_app_write_path(&target);
+            fs::remove_file(&target).map_err(|error| format!("Failed to delete source: {error}"))?;
+            let rescan = rescan_project_sources(state, &project)?;
+            respond_json(request, 200, json!({
+                "ok": true,
+                "projectId": project.id,
+                "path": format!("raw/sources/{}", normalize_source_rel(path)?),
+                "action": "deleted",
+                "rescan": rescan,
+            }))
+        }
+        (&Method::Post, ["projects", project_id, "sources", "rescan"]) => {
+            let project = web_project(state, project_id)?;
+            let result = rescan_project_sources(state, &project)?;
+            respond_json(request, 200, json!({
+                "ok": true,
+                "projectId": project.id,
+                "result": result,
+            }))
+        }
+        (&Method::Post, ["projects", project_id, "pages", "embed"]) => {
+            let project = web_project(state, project_id)?;
+            let body: Value = read_json(&mut request, MAX_JSON_BODY)?;
+            let path = body.get("path").and_then(Value::as_str).unwrap_or("").trim();
+            if path.is_empty() {
+                return respond_json(request, 400, json!({ "ok": false, "error": "path is required" }));
+            }
+            let force = body.get("force").and_then(Value::as_bool).unwrap_or(false);
+            let config = load_web_agent_runtime_config(state, &project.id, None)
+                .embedding
+                .ok_or_else(|| "Embedding is not configured".to_string())?;
+            match state.runtime.block_on(commands::page_embedding::embed_wiki_page(
+                &project.path,
+                path,
+                config,
+                force,
+            )) {
+                Ok(result) => respond_json(request, 200, json!({
+                    "ok": true,
+                    "projectId": project.id,
+                    "result": result,
+                })),
+                Err(error) => respond_json(request, 400, json!({
+                    "ok": false,
+                    "error": error.message,
+                })),
+            }
         }
         _ => respond_json(request, 404, json!({ "ok": false, "error": "Web API endpoint not implemented yet" })),
     }
+}
+
+
+fn normalize_source_rel(input: &str) -> Result<String, String> {
+    let normalized = input.replace('\\', "/").trim_matches('/').to_string();
+    if normalized.is_empty() {
+        return Err("Source path must not be empty".to_string());
+    }
+    let normalized = normalized
+        .strip_prefix("raw/sources/")
+        .unwrap_or(&normalized)
+        .to_string();
+    let rel = safe_relative(&normalized)?;
+    for part in rel.components() {
+        let Component::Normal(value) = part else {
+            return Err("Unsafe source path".to_string());
+        };
+        let value = value.to_string_lossy();
+        if value.starts_with('.') {
+            return Err("Hidden source paths are not allowed".to_string());
+        }
+    }
+    Ok(rel.to_string_lossy().replace('\\', "/"))
+}
+
+fn source_target_path(
+    state: &WebState,
+    project_path: &str,
+    input: &str,
+    allow_missing: bool,
+) -> Result<PathBuf, String> {
+    let rel = normalize_source_rel(input)?;
+    let root = Path::new(project_path).join("raw/sources");
+    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let target = root.join(rel);
+    if allow_missing {
+        ensure_allowed_write(state, target.to_string_lossy().as_ref())?;
+    } else {
+        ensure_allowed(state, target.to_string_lossy().as_ref())?;
+    }
+    Ok(target)
+}
+
+fn source_watch_config_web(
+    state: &WebState,
+    project_id: &str,
+) -> Option<commands::file_sync::SourceWatchConfig> {
+    let parsed = read_store(&state.data_dir.join("app-state.json"), &json!({})).ok()?;
+    let value = parsed
+        .get("sourceWatchConfig")
+        .and_then(Value::as_object)
+        .and_then(|settings| settings.get(project_id).or_else(|| settings.get("default")))
+        .cloned()?;
+    serde_json::from_value(value).ok()
+}
+
+fn rescan_project_sources(state: &WebState, project: &WebProject) -> Result<Value, String> {
+    let result = commands::file_sync::rescan_project_files_headless(
+        project.id.clone(),
+        project.path.clone(),
+        source_watch_config_web(state, &project.id),
+    )?;
+    to_value(result)
+}
+
+fn load_web_reviews(
+    project_path: &str,
+    status: &str,
+    review_type: Option<&str>,
+    limit: usize,
+) -> Result<Vec<Value>, String> {
+    let path = Path::new(project_path).join(".llm-wiki/review.json");
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let values = serde_json::from_str::<Value>(&raw)
+        .map_err(|error| format!("Invalid review file: {error}"))?;
+    let mut out = Vec::new();
+    for value in values.as_array().cloned().unwrap_or_default() {
+        let resolved = value.get("resolved").and_then(Value::as_bool).unwrap_or(false);
+        if status == "resolved" && !resolved {
+            continue;
+        }
+        if status != "resolved" && status != "all" && resolved {
+            continue;
+        }
+        if let Some(expected) = review_type {
+            if value.get("type").and_then(Value::as_str) != Some(expected) {
+                continue;
+            }
+        }
+        out.push(json!({
+            "id": value.get("id").cloned().unwrap_or(Value::Null),
+            "type": value.get("type").cloned().unwrap_or(Value::Null),
+            "title": value.get("title").cloned().unwrap_or(Value::Null),
+            "description": value.get("description").cloned().unwrap_or(Value::Null),
+            "sourcePath": value.get("sourcePath").cloned().unwrap_or(Value::Null),
+            "affectedPages": value.get("affectedPages").cloned().unwrap_or_else(|| json!([])),
+            "searchQueries": value.get("searchQueries").cloned().unwrap_or_else(|| json!([])),
+            "options": value.get("options").cloned().unwrap_or_else(|| json!([])),
+            "resolved": resolved,
+            "resolvedAction": value.get("resolvedAction").cloned().unwrap_or(Value::Null),
+            "createdAt": value.get("createdAt").cloned().unwrap_or_else(|| json!(0)),
+        }));
+        if out.len() >= limit {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+fn build_web_graph(project_path: &str) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let wiki_root = Path::new(project_path).join("wiki");
+    let mut raw = BTreeMap::<String, (String, String, String, Vec<String>)>::new();
+    for entry in WalkDir::new(&wiki_root).follow_links(false).into_iter().filter_map(Result::ok) {
+        if !entry.file_type().is_file()
+            || entry.path().extension().and_then(|value| value.to_str()) != Some("md")
+        {
+            continue;
+        }
+        let content = match fs::read_to_string(entry.path()) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let id = entry.path().file_stem().and_then(|value| value.to_str()).unwrap_or("").to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let title = commands::search::extract_title(
+            &content,
+            entry.file_name().to_string_lossy().as_ref(),
+        );
+        let node_type = content
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("type:"))
+            .map(|value| value.trim().trim_matches('"').trim_matches('\'').to_lowercase())
+            .unwrap_or_else(|| "other".to_string());
+        if node_type == "query" {
+            continue;
+        }
+        let rel = entry.path()
+            .strip_prefix(project_path)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let mut links = Vec::new();
+        let mut rest = content.as_str();
+        while let Some(start) = rest.find("[[") {
+            rest = &rest[start + 2..];
+            let Some(end) = rest.find("]]") else { break };
+            let target = rest[..end].split('|').next().unwrap_or("").trim();
+            if !target.is_empty() {
+                links.push(target.to_string());
+            }
+            rest = &rest[end + 2..];
+        }
+        raw.insert(id, (title, node_type, rel, links));
+    }
+
+    let ids = raw.keys().cloned().collect::<BTreeSet<_>>();
+    let mut counts = raw.keys().map(|id| (id.clone(), 0usize)).collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    let mut edges = Vec::new();
+    for (source, (_, _, _, links)) in &raw {
+        for raw_target in links {
+            let target = if ids.contains(raw_target) {
+                Some(raw_target.clone())
+            } else {
+                let normalized = raw_target.to_lowercase().replace(' ', "-");
+                ids.iter()
+                    .find(|id| id.to_lowercase() == normalized || id.to_lowercase() == raw_target.to_lowercase())
+                    .cloned()
+            };
+            let Some(target) = target else { continue };
+            if &target == source {
+                continue;
+            }
+            let key = if source < &target {
+                format!("{source}::{target}")
+            } else {
+                format!("{target}::{source}")
+            };
+            if seen.insert(key) {
+                *counts.entry(source.clone()).or_default() += 1;
+                *counts.entry(target.clone()).or_default() += 1;
+                edges.push(json!({ "source": source, "target": target, "weight": 1.0 }));
+            }
+        }
+    }
+
+    let nodes = raw.into_iter().map(|(id, (label, node_type, path, _))| {
+        json!({
+            "id": id,
+            "label": label,
+            "nodeType": node_type,
+            "path": path,
+            "linkCount": counts.get(&id).copied().unwrap_or(0),
+        })
+    }).collect();
+    Ok((nodes, edges))
 }
 
 fn api_projects(state: &WebState) -> Result<(Vec<Value>, Value), String> {
