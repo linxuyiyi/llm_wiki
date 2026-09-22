@@ -2,7 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use chrono::Local;
+#[cfg(feature = "desktop")]
 use tauri::AppHandle;
+#[cfg(feature = "desktop")]
 use tauri_plugin_opener::OpenerExt;
 
 use crate::panic_guard::run_guarded;
@@ -263,6 +265,7 @@ pub fn open_project(path: String) -> Result<WikiProject, String> {
     })
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn open_project_folder(app: AppHandle, path: String) -> Result<(), String> {
     run_guarded("open_project_folder", || {
@@ -289,6 +292,7 @@ pub fn open_project_folder(app: AppHandle, path: String) -> Result<(), String> {
     })
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn open_path_in_project(
     app: AppHandle,
