@@ -25,9 +25,15 @@ import { McpProjectBinding, withActiveProject } from "./project-binding.js"
 
 const DEFAULT_PROJECT_ID = "current"
 const MAX_TEXT_BYTES = 120_000
+let sharedClient: LlmWikiApiClient | null = null
+
+function getApiClient(): LlmWikiApiClient {
+  if (!sharedClient) sharedClient = new LlmWikiApiClient()
+  return sharedClient
+}
 
 export function createMcpServer(): Server {
-  const client = new LlmWikiApiClient()
+  const client = getApiClient()
   const projectBinding = new McpProjectBinding()
   const server = new Server(
   { name: "llm-wiki", version: VERSION },
@@ -357,7 +363,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 }
 
 async function assertMcpEnabled(): Promise<void> {
-  const health = await client.health()
+  const health = await getApiClient().health()
   if (health.mcpEnabled === false) {
     throw new McpError(
       ErrorCode.InvalidRequest,
@@ -385,7 +391,7 @@ async function resolveProjectScope(args: Record<string, unknown>, projectBinding
     throw new McpError(ErrorCode.InvalidParams, scopedErrorMessage(error, projectBinding))
   }
   if (projectBinding.project) return { id, project: projectBinding.project }
-  const projects = await client.projects()
+  const projects = await getApiClient().projects()
   const project = id === DEFAULT_PROJECT_ID
     ? projects.currentProject
     : projects.projects.find((candidate) => candidate.id === id || candidate.path === id) ?? null
