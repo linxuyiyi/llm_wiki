@@ -24,9 +24,8 @@ import { McpProjectBinding, withActiveProject } from "./project-binding.js"
 const DEFAULT_PROJECT_ID = "current"
 const MAX_TEXT_BYTES = 120_000
 
-const client = new LlmWikiApiClient()
-
 export function createMcpServer(): Server {
+  const client = new LlmWikiApiClient()
   const projectBinding = new McpProjectBinding()
   const server = new Server(
   { name: "llm-wiki", version: VERSION },
@@ -589,7 +588,19 @@ async function main(): Promise<void> {
   console.error(`LLM Wiki MCP server v${VERSION} connected to ${process.env.LLM_WIKI_API_BASE_URL ?? "http://127.0.0.1:19828"}`)
 }
 
-main().catch((err) => {
-  console.error("Failed to start LLM Wiki MCP server:", err)
-  process.exit(1)
-})
+function isMainModule(): boolean {
+  const entry = process.argv[1]
+  if (!entry) return false
+  try {
+    return new URL(import.meta.url).pathname === new URL(`file://${entry}`).pathname
+  } catch {
+    return import.meta.url.endsWith(entry.replace(/\\/g, "/"))
+  }
+}
+
+if (isMainModule()) {
+  main().catch((err) => {
+    console.error("Failed to start LLM Wiki MCP server:", err)
+    process.exit(1)
+  })
+}
