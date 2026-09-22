@@ -220,7 +220,7 @@ fn scan_registered_projects(state: &WebState) -> Result<(), String> {
         }
         let config = configured
             .and_then(|value| serde_json::from_value::<commands::file_sync::SourceWatchConfig>(value).ok());
-        if let Err(error) = commands::file_sync::rescan_project_files_headless(
+        if let Err(error) = commands::file_sync::background_rescan_project_files_headless(
             project_id.clone(),
             project_path.clone(),
             config,
@@ -660,7 +660,7 @@ fn invoke_command(state: &WebState, command: &str, args: &Value) -> Result<Value
             let project_path = required_string(args, "projectPath")?;
             ensure_allowed(state, &project_path)?;
             let source_watch_config = optional(args, "sourceWatchConfig")?;
-            to_value(commands::file_sync::startup_rescan_project_files_headless(
+            to_value(commands::file_sync::startup_rescan_project_files_headless_for_client(
                 project_id,
                 project_path,
                 source_watch_config,
@@ -671,7 +671,7 @@ fn invoke_command(state: &WebState, command: &str, args: &Value) -> Result<Value
             let project_path = required_string(args, "projectPath")?;
             ensure_allowed(state, &project_path)?;
             let source_watch_config = optional(args, "sourceWatchConfig")?;
-            to_value(commands::file_sync::rescan_project_files_headless(
+            to_value(commands::file_sync::rescan_project_files_headless_for_client(
                 project_id,
                 project_path,
                 source_watch_config,
@@ -1569,7 +1569,7 @@ fn source_watch_config_web(
 }
 
 fn rescan_project_sources(state: &WebState, project: &WebProject) -> Result<Value, String> {
-    let result = commands::file_sync::rescan_project_files_headless(
+    let result = commands::file_sync::rescan_project_files_headless_for_client(
         project.id.clone(),
         project.path.clone(),
         source_watch_config_web(state, &project.id),
