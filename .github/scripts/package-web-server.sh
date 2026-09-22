@@ -55,5 +55,8 @@ EOF
 
 mkdir -p "$OUT_DIR"
 tar -C "$OUT_DIR" -czf "$OUT_DIR/$PKG_NAME.tar.gz" "$PKG_NAME"
-sha256sum "$OUT_DIR/$PKG_NAME.tar.gz" > "$OUT_DIR/$PKG_NAME.tar.gz.sha256"
+(
+  cd "$OUT_DIR"
+  sha256sum "$PKG_NAME.tar.gz" > "$PKG_NAME.tar.gz.sha256"
+)
 ls -lh "$OUT_DIR/$PKG_NAME.tar.gz" "$OUT_DIR/$PKG_NAME.tar.gz.sha256"
