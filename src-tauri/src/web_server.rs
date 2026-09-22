@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use reqwest::blocking::Client;
@@ -146,6 +147,7 @@ pub fn run(config: WebServerConfig) -> Result<(), String> {
     let server = Server::http(&addr).map_err(|e| format!("Failed to bind {addr}: {e}"))?;
     eprintln!("[LLM Wiki Web] backend listening on http://{addr}");
     eprintln!("[LLM Wiki Web] data dir: {}", state.data_dir.display());
+    start_headless_source_monitor(state.clone());
 
     for request in server.incoming_requests() {
         let state = state.clone();
@@ -154,6 +156,79 @@ pub fn run(config: WebServerConfig) -> Result<(), String> {
                 eprintln!("[LLM Wiki Web] request failed: {err}");
             }
         });
+    }
+    Ok(())
+}
+
+
+fn start_headless_source_monitor(state: WebState) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(10));
+        if let Err(error) = scan_registered_projects(&state) {
+            eprintln!("[LLM Wiki Web] background source scan failed: {error}");
+        }
+    });
+}
+
+fn scan_registered_projects(state: &WebState) -> Result<(), String> {
+    let app_state = read_store(&state.data_dir.join("app-state.json"), &json!({}))?;
+    let mut projects = BTreeMap::<String, String>::new();
+
+    if let Some(registry) = app_state.get("projectRegistry").and_then(Value::as_object) {
+        for (id, entry) in registry {
+            if let Some(path) = entry.get("path").and_then(Value::as_str) {
+                projects.insert(id.clone(), path.to_string());
+            }
+        }
+    }
+    if let Some(recents) = app_state.get("recentProjects").and_then(Value::as_array) {
+        for entry in recents {
+            let Some(path) = entry.get("path").and_then(Value::as_str) else {
+                continue;
+            };
+            let id = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .or_else(|| read_project_id(path))
+                .unwrap_or_else(|| path.to_string());
+            projects.entry(id).or_insert_with(|| path.to_string());
+        }
+    }
+
+    for (project_id, project_path) in projects {
+        if ensure_allowed(state, &project_path).is_err() {
+            continue;
+        }
+        let configured = app_state
+            .get("sourceWatchConfig")
+            .and_then(Value::as_object)
+            .and_then(|settings| {
+                settings
+                    .get(&project_id)
+                    .or_else(|| settings.get("default"))
+            })
+            .cloned();
+        if configured
+            .as_ref()
+            .and_then(|value| value.get("enabled"))
+            .and_then(Value::as_bool)
+            == Some(false)
+        {
+            continue;
+        }
+        let config = configured
+            .and_then(|value| serde_json::from_value::<commands::file_sync::SourceWatchConfig>(value).ok());
+        if let Err(error) = commands::file_sync::rescan_project_files_headless(
+            project_id.clone(),
+            project_path.clone(),
+            config,
+        ) {
+            eprintln!(
+                "[LLM Wiki Web] source scan failed for {}: {}",
+                project_path, error
+            );
+        }
     }
     Ok(())
 }
@@ -579,8 +654,27 @@ fn invoke_command(state: &WebState, command: &str, args: &Value) -> Result<Value
             ensure_allowed(state, &project_path)?;
             to_value(commands::file_sync::get_file_change_queue(project_path)?)
         }
-        "start_project_file_watcher" | "rescan_project_files" => {
-            Ok(json!({ "queue": { "version": 1, "tasks": [] }, "changedTasks": [] }))
+        "start_project_file_watcher" => {
+            let project_id = required_string(args, "projectId")?;
+            let project_path = required_string(args, "projectPath")?;
+            ensure_allowed(state, &project_path)?;
+            let source_watch_config = optional(args, "sourceWatchConfig")?;
+            to_value(commands::file_sync::startup_rescan_project_files_headless(
+                project_id,
+                project_path,
+                source_watch_config,
+            )?)
+        }
+        "rescan_project_files" => {
+            let project_id = required_string(args, "projectId")?;
+            let project_path = required_string(args, "projectPath")?;
+            ensure_allowed(state, &project_path)?;
+            let source_watch_config = optional(args, "sourceWatchConfig")?;
+            to_value(commands::file_sync::rescan_project_files_headless(
+                project_id,
+                project_path,
+                source_watch_config,
+            )?)
         }
         "stop_project_file_watcher" => Ok(Value::Null),
         "retry_file_change_task" | "ignore_file_change_task" => {
