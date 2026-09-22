@@ -49,3 +49,74 @@ jobs:
       - name: Check Web server
         working-directory: src-tauri
         run: cargo check --bin llm-wiki-server
+
+
+  server-arm64:
+    runs-on: ubuntu-22.04-arm
+    env:
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_NET_RETRY: "5"
+      CARGO_HTTP_TIMEOUT: "60"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler
+
+      - name: Use ARM64 PDFium
+        run: |
+          cp src-tauri/pdfium/libpdfium-arm64.so src-tauri/pdfium/libpdfium.so
+          file src-tauri/pdfium/libpdfium.so
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Web UI and gateway
+        run: |
+          npm run build:web
+          npm --prefix mcp-server ci
+          npm run mcp:build
+
+      - name: Build ARM64 server
+        run: cargo build --manifest-path src-tauri/Cargo.toml --bin llm-wiki-server --release
+
+      - name: Smoke test headless server
+        shell: bash
+        run: |
+          mkdir -p /tmp/llm-wiki-web-test
+          src-tauri/target/release/llm-wiki-server             --host 127.0.0.1             --port 19829             --data-dir /tmp/llm-wiki-web-test             --web-dir dist-web >/tmp/llm-wiki-server.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:19829/health >/tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/health.json
+          grep -q '"status":"running"' /tmp/health.json
+
+      - name: Package ARM64 Web Edition
+        run: bash .github/scripts/package-web-server.sh
+
+      - name: Upload ARM64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-wiki-web-linux-arm64
+          path: |
+            dist-web-server/*.tar.gz
+            dist-web-server/*.sha256
+          if-no-files-found: error
+          retention-days: 14
