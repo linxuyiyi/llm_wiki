@@ -1,6 +1,6 @@
+#!/usr/bin/env node
 import { fileURLToPath } from "node:url"
 import { resolve } from "node:path"
-#!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { parseMcpLaunchOptions, startHttpMcpServer } from "./http-server.js"
