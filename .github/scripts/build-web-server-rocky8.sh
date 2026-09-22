@@ -29,7 +29,6 @@ dnf -y install \
   gcc \
   gcc-c++ \
   git \
-  gtk3-devel \
   make \
   openssl-devel \
   perl \
