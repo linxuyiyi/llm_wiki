@@ -68,7 +68,10 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     tail -n 200 "$BACKEND_LOG" >&2 || true
     echo "---------------------" >&2
     BACKEND_PID=""
-    exit ${backend_code:-1}
+    if [ "$backend_code" -eq 0 ]; then
+      exit 1
+    fi
+    exit "$backend_code"
   fi
 
   if node -e '
