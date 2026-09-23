@@ -37,10 +37,39 @@ dnf -y install \
   protobuf-compiler \
   python3 \
   tar \
+  unzip \
   xz
 
 update-ca-trust || true
 git config --global --add safe.directory "$ROOT"
+
+PROTOC_VERSION="${PROTOC_VERSION:-3.20.3}"
+PROTOC_ARCHIVE="protoc-${PROTOC_VERSION}-linux-aarch_64.zip"
+PROTOC_DIR="/opt/protoc-${PROTOC_VERSION}"
+if [ ! -x "$PROTOC_DIR/bin/protoc" ]; then
+  curl -fsSLo "/tmp/$PROTOC_ARCHIVE" \
+    "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/$PROTOC_ARCHIVE"
+  rm -rf "$PROTOC_DIR"
+  mkdir -p "$PROTOC_DIR"
+  unzip -q "/tmp/$PROTOC_ARCHIVE" -d "$PROTOC_DIR"
+fi
+export PROTOC="$PROTOC_DIR/bin/protoc"
+export PATH="$PROTOC_DIR/bin:$PATH"
+echo "Using $(protoc --version) from $PROTOC"
+protoc --help 2>&1 | grep -q "experimental_allow_proto3_optional" || {
+  # protoc 3.20 accepts the flag even if a distribution omits it from help;
+  # verify directly with a tiny proto3 optional schema.
+  cat >/tmp/llm-wiki-protoc-smoke.proto <<'EOF'
+syntax = "proto3";
+message Smoke {
+  optional string value = 1;
+}
+EOF
+  protoc --experimental_allow_proto3_optional \
+    --descriptor_set_out=/tmp/llm-wiki-protoc-smoke.pb \
+    /tmp/llm-wiki-protoc-smoke.proto \
+    --proto_path=/tmp
+}
 
 NODE_VERSION="${NODE_VERSION:-20.20.2}"
 NODE_ARCHIVE="node-v${NODE_VERSION}-linux-arm64.tar.xz"
