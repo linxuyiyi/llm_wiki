@@ -22,6 +22,35 @@ use crate::{agent, commands};
 const MAX_JSON_BODY: usize = 160 * 1024 * 1024;
 const MAX_PROXY_BODY: usize = 128 * 1024 * 1024;
 const MAX_PROXY_RESPONSE: usize = 128 * 1024 * 1024;
+const DEFAULT_UPSTREAM_CONNECT_TIMEOUT_SECONDS: u64 = 30;
+const DEFAULT_UPSTREAM_TIMEOUT_SECONDS: u64 = 600;
+
+fn env_timeout_seconds(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn build_proxy_client(accept_invalid_certs: bool) -> Result<Client, String> {
+    let connect_timeout = env_timeout_seconds(
+        "LLM_WIKI_UPSTREAM_CONNECT_TIMEOUT_SECONDS",
+        DEFAULT_UPSTREAM_CONNECT_TIMEOUT_SECONDS,
+    );
+    let request_timeout = env_timeout_seconds(
+        "LLM_WIKI_UPSTREAM_TIMEOUT_SECONDS",
+        DEFAULT_UPSTREAM_TIMEOUT_SECONDS,
+    );
+
+    Client::builder()
+        .connect_timeout(Duration::from_secs(connect_timeout))
+        .timeout(Duration::from_secs(request_timeout))
+        .danger_accept_invalid_certs(accept_invalid_certs)
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| format!("Failed to initialize HTTP client: {e}"))
+}
 
 #[derive(Debug, Clone)]
 pub struct WebServerConfig {
@@ -138,10 +167,7 @@ pub fn run(config: WebServerConfig) -> Result<(), String> {
         runtime: Arc::new(runtime),
         agent_sessions: Arc::new(agent::session::AgentSessionStore::default()),
         agent_cancellations: agent::cancel::AgentCancellationRegistry::default(),
-        http: Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .map_err(|e| format!("Failed to initialize HTTP client: {e}"))?,
+        http: build_proxy_client(false)?,
     };
 
     let addr = format!("{}:{}", config.host, config.port);
@@ -1218,11 +1244,7 @@ fn handle_proxy_fetch(state: &WebState, request: ProxyFetchRequest) -> Result<Pr
     }
 
     let client = if request.accept_invalid_certs {
-        Client::builder()
-            .danger_accept_invalid_certs(true)
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .map_err(|e| e.to_string())?
+        build_proxy_client(true)?
     } else {
         state.http.clone()
     };
