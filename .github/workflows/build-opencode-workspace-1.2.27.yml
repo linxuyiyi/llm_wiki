@@ -1,0 +1,57 @@
+name: Build OpenCode Workspace UI 1.2.27
+
+on:
+  push:
+    branches:
+      - build/opencode-workspace-ui-1.2.27
+    paths:
+      - ".ci/opencode-workspace-1.2.27/**"
+      - ".github/workflows/build-opencode-workspace-1.2.27.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout build host
+        uses: actions/checkout@v4
+
+      - name: Checkout OpenCode 1.2.27
+        uses: actions/checkout@v4
+        with:
+          repository: linxuyiyi/opencode-self
+          ref: v1.2.27
+          path: .build/opencode
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Apply Astra patches
+        run: |
+          python .ci/opencode-workspace-1.2.27/patch_upstream.py .build/opencode
+          rm -rf .build/opencode/packages/astra-workspace
+          cp -R .ci/opencode-workspace-1.2.27/app .build/opencode/packages/astra-workspace
+
+      - name: Install dependencies
+        working-directory: .build/opencode
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace UI
+        working-directory: .build/opencode
+        run: bun run --cwd packages/astra-workspace build
+
+      - name: Verify output
+        run: |
+          test -f .build/opencode/packages/astra-workspace/dist/index.html
+          find .build/opencode/packages/astra-workspace/dist -maxdepth 2 -type f -print
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-ui-1.2.27
+          path: .build/opencode/packages/astra-workspace/dist
+          if-no-files-found: error
+          retention-days: 3
