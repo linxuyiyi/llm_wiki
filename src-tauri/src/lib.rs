@@ -9,7 +9,6 @@ mod cors;
 #[cfg(feature = "desktop")]
 mod mcp_http;
 mod panic_guard;
-#[cfg(feature = "desktop")]
 mod proxy;
 #[cfg(feature = "desktop")]
 mod server_bind;
