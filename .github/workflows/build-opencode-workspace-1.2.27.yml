@@ -56,9 +56,18 @@ jobs:
           rm -rf build-artifacts/workspace-ui-1.2.27
           mkdir -p build-artifacts/workspace-ui-1.2.27
           cp -R .build/opencode/packages/astra-workspace/dist/. build-artifacts/workspace-ui-1.2.27/
+          rm -rf build-artifacts-base64/workspace-ui-1.2.27
+          mkdir -p build-artifacts-base64/workspace-ui-1.2.27/assets
+          for file in .build/opencode/packages/astra-workspace/dist/assets/*; do
+            case "$file" in
+              *.woff|*.woff2|*.ttf|*.aac)
+                base64 -w0 "$file" > "build-artifacts-base64/workspace-ui-1.2.27/assets/$(basename "$file").b64"
+                ;;
+            esac
+          done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add build-artifacts/workspace-ui-1.2.27
+          git add build-artifacts/workspace-ui-1.2.27 build-artifacts-base64/workspace-ui-1.2.27
           if ! git diff --cached --quiet; then
             git commit -m "build: publish workspace UI 1.2.27 [skip ci]"
             git push origin HEAD:build/opencode-workspace-ui-1.2.27
