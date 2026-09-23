@@ -61,7 +61,7 @@ node --version
 npm --version
 node -e 'const [major] = process.versions.node.split(".").map(Number); if (major < 20) process.exit(1)'
 
-RUST_VERSION="${RUST_VERSION:-1.88.0}"
+RUST_VERSION="${RUST_VERSION:-1.91.0}"
 if [ ! -x "$HOME/.cargo/bin/rustc" ]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION"
