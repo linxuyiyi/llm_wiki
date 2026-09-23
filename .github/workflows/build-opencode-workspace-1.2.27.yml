@@ -9,6 +9,9 @@ on:
       - ".github/workflows/build-opencode-workspace-1.2.27.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -47,6 +50,19 @@ jobs:
         run: |
           test -f .build/opencode/packages/astra-workspace/dist/index.html
           find .build/opencode/packages/astra-workspace/dist -maxdepth 2 -type f -print
+
+      - name: Publish bundle to build branch
+        run: |
+          rm -rf build-artifacts/workspace-ui-1.2.27
+          mkdir -p build-artifacts/workspace-ui-1.2.27
+          cp -R .build/opencode/packages/astra-workspace/dist/. build-artifacts/workspace-ui-1.2.27/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-artifacts/workspace-ui-1.2.27
+          if ! git diff --cached --quiet; then
+            git commit -m "build: publish workspace UI 1.2.27 [skip ci]"
+            git push origin HEAD:build/opencode-workspace-ui-1.2.27
+          fi
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4
