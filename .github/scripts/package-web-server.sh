@@ -45,6 +45,10 @@ Requirements:
 Start:
   LLM_WIKI_DATA_DIR=/var/lib/llm-wiki ./start.sh
 
+Optional upstream LLM timeout settings:
+  LLM_WIKI_UPSTREAM_CONNECT_TIMEOUT_SECONDS=30
+  LLM_WIKI_UPSTREAM_TIMEOUT_SECONDS=600
+
 Default unified endpoint:
   Web UI: http://<host>:8080/
   HTTP API: http://<host>:8080/api/v1/
