@@ -43,16 +43,17 @@ update-ca-trust || true
 git config --global --add safe.directory "$ROOT"
 
 NODE_VERSION="${NODE_VERSION:-20.20.2}"
+NODE_ARCHIVE="node-v${NODE_VERSION}-linux-arm64.tar.xz"
 NODE_DIR="/opt/node-v${NODE_VERSION}-linux-arm64"
 if [ ! -x "$NODE_DIR/bin/node" ]; then
-  curl -fsSLo /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-arm64.tar.xz"
+  curl -fsSLo "/tmp/$NODE_ARCHIVE" "https://nodejs.org/dist/v${NODE_VERSION}/$NODE_ARCHIVE"
   curl -fsSLo /tmp/SHASUMS256.txt "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"
   (
     cd /tmp
-    grep " node-v${NODE_VERSION}-linux-arm64.tar.xz\$" SHASUMS256.txt | sha256sum -c -
+    grep " $NODE_ARCHIVE\$" SHASUMS256.txt | sha256sum -c -
   )
   mkdir -p "$NODE_DIR"
-  tar -xJf /tmp/node.tar.xz --strip-components=1 -C "$NODE_DIR"
+  tar -xJf "/tmp/$NODE_ARCHIVE" --strip-components=1 -C "$NODE_DIR"
 fi
 export PATH="$NODE_DIR/bin:$PATH"
 
