@@ -58,7 +58,10 @@ jobs:
           BIN=/tmp/llm-wiki-release-check/llm-wiki-web-0.6.11-linux-aarch64/bin/llm-wiki-server
           file "$BIN"
           bash .github/scripts/verify-glibc-baseline.sh "$BIN"
-          sha256sum -c dist-web-server/llm-wiki-web-0.6.11-linux-aarch64.tar.gz.sha256
+          (
+            cd dist-web-server
+            sha256sum -c llm-wiki-web-0.6.11-linux-aarch64.tar.gz.sha256
+          )
 
       - name: Upload production ARM64 package
         uses: actions/upload-artifact@v4
