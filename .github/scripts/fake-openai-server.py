@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import json
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -35,4 +35,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 19000), Handler).serve_forever()
+    HTTPServer(("127.0.0.1", 19000), Handler).serve_forever()
