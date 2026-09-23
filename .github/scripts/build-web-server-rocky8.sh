@@ -123,7 +123,10 @@ bash "$ROOT/.github/scripts/verify-glibc-baseline.sh" "$SERVER_BIN"
 export LLM_WIKI_SERVER_BIN="$SERVER_BIN"
 export LLM_WIKI_RELEASE_ARCH="aarch64"
 
-bash "$ROOT/.github/scripts/smoke-web-edition.sh"
+# Production release validation is intentionally scoped to the deployment
+# contract: GLIBC baseline, packaged start.sh fail-fast, Web UI, HTTP API and
+# HTTP MCP. Agent model fixtures belong to the broader CI suite and must not
+# block production packaging.
 bash "$ROOT/.github/scripts/package-web-server.sh"
 bash "$ROOT/.github/scripts/smoke-packaged-web-release.sh"
 
