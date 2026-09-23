@@ -9,7 +9,7 @@ import {
 } from '@opencode-ai/app'
 import { base64Encode } from '@opencode-ai/util/encode'
 
-const VERSION = '1.2.27'
+// Pinned to company OpenCode server compatibility\nconst VERSION = '1.2.27'
 const params = new URLSearchParams(location.search)
 const taskID = params.get('task')
 const selected = params.get('session')
