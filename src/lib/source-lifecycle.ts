@@ -42,6 +42,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { preprocessSourceFiles } from "@/lib/source-preprocess"
 import { moveParsedMarkdown, removeParsedMarkdown } from "@/lib/parsed-source-output"
 
+import { isWebRuntime, ingestOnServer } from "@/lib/web-ingest"
+
 export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
   "md",
   "mdx",
@@ -263,6 +265,7 @@ export async function enqueueSourceIngest(
   // model is configured. Imported source files remain on disk and can be
   // queued after the user configures a provider.
   if (!hasUsableLlm(getTaskLlmConfig("ingest", llmConfig))) return []
+  if (isWebRuntime) return ingestOnServer(project, sourcePaths.filter(path => isIngestableSourcePath(path) && !isSensitiveConfigSourceFile(path)))
   const files = sourcePaths
     .filter((sourcePath) =>
       isIngestableSourcePath(sourcePath) &&

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url"
 import { createMcpServer } from "./index.js"
 import { startHttpMcpServer, type McpHttpFallbackHandler } from "./http-server.js"
 
+import { IngestService } from "./ingest-service.js"
+
 interface GatewayOptions {
   host: string
   port: number
@@ -52,8 +54,9 @@ function parseOptions(argv = process.argv.slice(2), env = process.env): GatewayO
   return { host, port, backendUrl, webDir, authToken }
 }
 
-function createFallback(options: GatewayOptions): McpHttpFallbackHandler {
+function createFallback(options: GatewayOptions, ingest: IngestService): McpHttpFallbackHandler {
   return async (req, res, url) => {
+    if (await ingest.handle(req, res, url)) return true
     if (url.pathname.startsWith("/api/")) {
       proxyToBackend(req, res, options.backendUrl)
       return true
@@ -188,6 +191,11 @@ async function main(): Promise<void> {
   const options = parseOptions()
   process.env.LLM_WIKI_API_BASE_URL = options.backendUrl.toString().replace(/\/+$/, "")
 
+  const ingest = new IngestService(options.backendUrl.toString())
+  await ingest.initialize()
+  setInterval(() => { void ingest.sweep() }, 10_000).unref()
+  void ingest.sweep()
+
   await startHttpMcpServer(
     createMcpServer,
     {
@@ -196,7 +204,7 @@ async function main(): Promise<void> {
       path: "/mcp",
       authToken: options.authToken,
     },
-    createFallback(options),
+    createFallback(options, ingest),
   )
 
   console.error(`LLM Wiki Web UI: http://127.0.0.1:${options.port}/`)

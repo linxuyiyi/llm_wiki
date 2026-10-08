@@ -263,6 +263,7 @@ describe("scanAndImport failure handling", () => {
     })
     mocks.discardTasksForSources.mockResolvedValue(0)
     mocks.preprocessFile.mockResolvedValue("")
+    mocks.enqueueSourceIngest.mockResolvedValue(["task-1"])
     mocks.isIngestableSourcePath.mockReturnValue(true)
     mocks.loadScheduledImportConfig.mockResolvedValue({
       enabled: true,
@@ -294,7 +295,7 @@ describe("scanAndImport failure handling", () => {
   it("does not mark changed files imported when enqueue fails", async () => {
     mocks.enqueueSourceIngest.mockRejectedValue(new Error("queue stopped"))
 
-    await scanAndImport(project, "/Users/me/inbox")
+    await expect(scanAndImport(project, "/Users/me/inbox")).rejects.toThrow("queue stopped")
 
     expect(mocks.copyFile).toHaveBeenCalled()
     expect(mocks.enqueueSourceIngest).toHaveBeenCalled()

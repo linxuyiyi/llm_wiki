@@ -30,6 +30,7 @@ cp "$ROOT/mcp-server/package.json" "$ROOT/mcp-server/package-lock.json" "$STAGE/
   npm ci --omit=dev --ignore-scripts
 )
 
+cp "$ROOT/deploy/llm-wiki-web/INGEST-API.md" "$STAGE/INGEST-API.md"
 cp "$ROOT/deploy/llm-wiki-web/start.sh" "$STAGE/start.sh"
 cp "$ROOT/deploy/llm-wiki-web/llm-wiki-web.service" "$STAGE/llm-wiki-web.service"
 chmod +x "$STAGE/start.sh" "$STAGE/bin/llm-wiki-server"

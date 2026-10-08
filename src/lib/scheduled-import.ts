@@ -31,6 +31,8 @@ import { discardTasksForSources, enqueueInactiveProjectBatch } from "@/lib/inges
 import { useActivityStore } from "@/stores/activity-store"
 import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
 
+import { isWebRuntime, scanOnServer } from "@/lib/web-ingest"
+
 interface ImportDb {
   files: Record<string, string>
   lastScan: number | null
@@ -47,6 +49,7 @@ interface ImportDbStore {
 }
 
 type ScanOptions = {
+  strict?: boolean
   runId?: number
   allowInactive?: boolean
   sourceWatchConfig?: SourceWatchConfig
@@ -432,6 +435,12 @@ export async function scanAndImport(
   options: ScanOptions = {},
 ): Promise<void> {
   if (!importPath) return
+  if (isWebRuntime) {
+    await scanOnServer(project, importPath)
+    const config = await loadScheduledImportConfig(project.path)
+    if (config && isCurrentProject(project.id)) useWikiStore.getState().setScheduledImportConfig(config)
+    return
+  }
 
   const projectPath = normalizePath(project.path)
   const importRoot = resolveImportPath(projectPath, importPath)
@@ -442,6 +451,7 @@ export async function scanAndImport(
     if (isCurrentProject(project.id)) {
       notifyManagedScheduledImportPath(project, importRoot)
     }
+    if (options.strict) throw new Error(`请选择项目之外的导入目录: ${importRoot}`)
     return
   }
 
@@ -514,6 +524,7 @@ export async function scanAndImport(
           nextDb.files[key] = db.files[key]
         }
         console.warn(`[scheduled-import] skipped ${file.path}:`, err)
+        if (options.strict) throw err
       }
     }
 
@@ -565,6 +576,7 @@ export async function scanAndImport(
           }
         } else {
           console.warn("[scheduled-import] LLM is not configured; changed files were not marked imported")
+          if (options.strict) throw new Error("资料未完成摄取，请检查模型配置和文件过滤规则")
         }
       }
     }
@@ -583,14 +595,15 @@ export async function scanAndImport(
     await saveImportDb(projectPath, importRoot, nextDb)
 
     const currentConfig = await loadScheduledImportConfig(projectPath)
-    if (currentConfig) {
+    const scannedConfiguredPath = currentConfig && resolveImportPath(projectPath, currentConfig.path) === importRoot
+    if (currentConfig && scannedConfiguredPath) {
       await saveScheduledImportConfig(projectPath, {
         ...currentConfig,
         lastScan: nextDb.lastScan,
       })
     }
 
-    if (isCurrentProject(project.id) && currentConfig) {
+    if (isCurrentProject(project.id) && currentConfig && scannedConfiguredPath) {
       useWikiStore.getState().setScheduledImportConfig({
         ...currentConfig,
         lastScan: nextDb.lastScan,
@@ -598,6 +611,7 @@ export async function scanAndImport(
     }
   } catch (err) {
     console.error("Scheduled import scan failed:", err)
+    throw err
   } finally {
     scanning = false
   }
@@ -608,6 +622,8 @@ export function startScheduledImport(
   config: ScheduledImportConfig,
 ): void {
   stopScheduledImport()
+  // The gateway owns scheduling in Web mode, including when no page is open.
+  if (isWebRuntime) return
 
   const runId = ++activeRunId
   void runScheduledImportSweep(project, config, runId, true).catch((err) => {

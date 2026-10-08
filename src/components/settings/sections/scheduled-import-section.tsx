@@ -23,6 +23,8 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
   const project = useWikiStore((s) => s.project)
   const scheduledImportConfig = useWikiStore((s) => s.scheduledImportConfig)
   const [isScanning, setIsScanning] = useState(false)
+  const [scanMessage, setScanMessage] = useState("")
+  const [scanFailed, setScanFailed] = useState(false)
 
   const handleSelectDirectory = async () => {
     const selected = await open({
@@ -41,14 +43,19 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
     if (!project || isScanning) return
 
     setIsScanning(true)
+    setScanMessage("")
+    setScanFailed(false)
     try {
       await scanAndImport(project, draft.scheduledImportPath)
+      setScanMessage(t("settings.sections.scheduledImport.scanComplete", {defaultValue: "Scan and Wiki extraction completed."}))
     } catch (err) {
       console.error("[Scheduled Import] Manual scan failed:", err)
+      setScanFailed(true)
+      setScanMessage(err instanceof Error ? err.message : String(err))
     } finally {
       setIsScanning(false)
     }
-  }, [project, draft.scheduledImportPath, isScanning])
+  }, [project, draft.scheduledImportPath, isScanning, t])
 
   const lastScanDate = scheduledImportConfig.lastScan
     ? new Date(scheduledImportConfig.lastScan).toLocaleString()
@@ -170,6 +177,8 @@ export function ScheduledImportSection({ draft, setDraft }: Props) {
           })}
         </p>
       </div>
+
+      {scanMessage && <p role={scanFailed ? "alert" : "status"} className={scanFailed ? "text-sm text-red-600" : "text-sm text-muted-foreground"}>{scanMessage}</p>}
 
       <div className="flex items-center gap-4">
         <Button
